@@ -1,0 +1,9 @@
+.nav-link {
+    margin: 0 10px;
+    font-weight: 500;
+}
+
+.nav-link:hover {
+    color: #0d6efd !important; /* Bootstrap primary blue hover */
+    text-decoration: underline;
+}
