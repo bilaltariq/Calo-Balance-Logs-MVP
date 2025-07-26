@@ -128,3 +128,78 @@ class Database:
         WHERE new_balance < 0
         """
         return pd.read_sql_query(query, self.connection)
+
+
+    def ensure_table(self, table_name: str, schema: dict):
+        """
+        Ensure table exists with given schema. Does not drop or alter existing columns.
+        """
+        self.create_table(table_name, schema)
+
+    def add_column_if_missing(self, table_name: str, column_name: str, dtype: str = "TEXT"):
+        """
+        Add a column to an existing table if it doesn't exist.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        existing_cols = [row[1] for row in cursor.fetchall()]
+
+        if column_name not in existing_cols:
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {dtype}")
+            self.connection.commit()
+            print(f"Added missing column '{column_name}' to {table_name}")
+
+    def insert_rows_dynamic(self, table_name: str, rows: list):
+        """
+        Insert rows into table dynamically adding columns if new keys are found.
+        """
+        if not rows:
+            print("No rows to insert.")
+            return
+
+        cursor = self.connection.cursor()
+
+        # 1. Get existing columns
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        existing_cols = {info[1] for info in cursor.fetchall()}
+
+        # 2. Collect all columns from rows
+        all_keys = set()
+        for row in rows:
+            all_keys.update(row.keys())
+
+        # 3. Add missing columns
+        new_cols = all_keys - existing_cols
+        for col in new_cols:
+            try:
+                cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN '{col}' TEXT")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" in str(e).lower():
+                    continue  # Safe to ignore duplicates
+                else:
+                    raise
+
+        # 4. Insert rows
+        cols_order = list(all_keys)
+        placeholders = ", ".join(["?"] * len(cols_order))
+        col_names_str = ", ".join([f"'{c}'" for c in cols_order])
+
+        for row in rows:
+            values = [str(row.get(c)) if isinstance(row.get(c), (list, dict)) else row.get(c) for c in cols_order]
+            cursor.execute(f"INSERT INTO {table_name} ({col_names_str}) VALUES ({placeholders})", values)
+
+        self.connection.commit()
+        print(f"Inserted {len(rows)} rows into {table_name}.")
+
+    def delete_rows(self, table_name, where_clause=None, params=None):
+            """
+            Delete rows from a table based on a WHERE clause.
+            Example:
+                db.delete_rows("parsed_logs", "filename = ?", ("somefile",))
+            """
+            query = f"DELETE FROM {table_name}"
+            if where_clause:
+                query += f" WHERE {where_clause}"
+
+            self.connection.execute(query, params or ())
+            self.connection.commit()
