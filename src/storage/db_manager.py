@@ -45,43 +45,6 @@ class Database:
         except sqlite3.Error as e:
             print(f"Error: Unable to create table {table_name}. {e}")
 
-    def initialize_tables(self):
-        """
-        Create initial tables needed for Calo balance pipeline
-        """
-        self.connect()
-
-        # Transactions log table
-        self.create_table("balance_events", {
-            "id": "TEXT PRIMARY KEY",
-            "user_id": "TEXT",
-            "currency": "TEXT",
-            "amount": "REAL",
-            "vat": "REAL",
-            "old_balance": "REAL",
-            "new_balance": "REAL",
-            "event_type": "TEXT",   # e.g., CREDIT, DEBIT, SYNC_SKIP
-            "timestamp": "TEXT"
-        })
-
-        # Sync issues (imbalances between subscription vs payment balance)
-        self.create_table("sync_issues", {
-            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-            "user_id": "TEXT",
-            "subscription_balance": "REAL",
-            "payment_balance": "REAL",
-            "detected_at": "TEXT"
-        })
-
-        # Anomalies (bonus analysis)
-        self.create_table("anomalies", {
-            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-            "user_id": "TEXT",
-            "description": "TEXT",
-            "detected_at": "TEXT"
-        })
-
-        self.close_connection()
 
     def insert_dataframe(self, table_name, dataframe, if_exists_m='append'):
         try:
@@ -91,21 +54,6 @@ class Database:
         except sqlite3.Error as e:
             print(f"Error inserting into {table_name}: {e}")
 
-    def insert_event_dict(self, event: dict):
-        """
-        Insert a single log event (parsed from logs)
-        """
-        cursor = self.connection.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO balance_events
-            (id, user_id, currency, amount, vat, old_balance, new_balance, event_type, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            event.get("id"), event.get("user_id"), event.get("currency"),
-            event.get("amount"), event.get("vat"), event.get("old_balance"),
-            event.get("new_balance"), event.get("event_type"), event.get("timestamp")
-        ))
-        self.connection.commit()
 
     def select_table(self, table_name):
         cursor = self.connection.cursor()
@@ -113,21 +61,6 @@ class Database:
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
         return pd.DataFrame(rows, columns=columns)
-
-    def query_user_history(self, user_id):
-        query = f"""
-        SELECT * FROM balance_events
-        WHERE user_id = ?
-        ORDER BY timestamp
-        """
-        return pd.read_sql_query(query, self.connection, params=[user_id])
-
-    def get_overdraft_users(self):
-        query = """
-        SELECT DISTINCT user_id FROM balance_events
-        WHERE new_balance < 0
-        """
-        return pd.read_sql_query(query, self.connection)
 
 
     def ensure_table(self, table_name: str, schema: dict):
