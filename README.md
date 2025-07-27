@@ -48,29 +48,29 @@ Build a pipeline to process subscription balance logs for:
 ### **Phase 1: Setup & Planning**
 - [X] Create project repository and folder structure.
 - [X] Define `.env` for DB connections (Postgres/SQLite).
-- [ ] Collect sample log files from CloudWatch exports.
-- [ ] Define requirements.txt (Dash, Pandas, SQLAlchemy, etc.).
+- [X] Collect sample log files from CloudWatch exports.
+- [X] Define requirements.txt (Dash, Pandas, SQLAlchemy, etc.).
 
 ---
 
 ### **Phase 2: Data Ingestion**
-- [ ] Write parser for raw logs (regex or JSON parsing).
-- [ ] Extract fields:
+- [X] Write parser for raw logs (regex or JSON parsing).
+- [X] Extract fields:
   - `transaction_id`, `user_id`, `currency`, `old_balance`, `new_balance`, `amount`, `vat`
   - `event_type` (processed, skipped, discrepancy)
   - `timestamp`, `message_id`, `RequestId`
-- [ ] Handle edge cases:
+- [X] Handle edge cases:
   - Skipped events (no userId).
   - Discrepancies (subscription vs payment).
   - Duplicate events.
-- [ ] Save parsed data into `balance_events` table.
+- [X] Save parsed data into `parsed_logs` table.
 
 ---
 
 ### **Phase 3: Data Transformation**
 - [ ] Create derived field `net_change = new_balance - old_balance`.
 - [ ] Flag overdrafts (`new_balance < 0`).
-- [ ] Build `user_balances` table (latest balance per user).
+- [ ] Build `reconcile_events` table (latest balance per user).
 - [ ] Build `discrepancy_report` table (subscription vs payment mismatch).
 - [ ] Build `anomalies` table:
   - Large transaction spikes.
