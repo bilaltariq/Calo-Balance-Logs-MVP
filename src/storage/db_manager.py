@@ -21,10 +21,7 @@ class Database:
         try:
             # Ensure folder exists
             os.makedirs(os.path.dirname(self.db_name), exist_ok=True)
-
-            # Connect (this creates DB file if it doesn't exist)
             self.connection = sqlite3.connect(self.db_name)
-            print(f"Connected to SQLite DB: {self.db_name}")
         except sqlite3.Error as e:
             raise Exception(f"Error connecting to database: {e}")
 
