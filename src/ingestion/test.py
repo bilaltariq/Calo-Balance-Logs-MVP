@@ -4,107 +4,138 @@ import json
 import sys
 import pandas as pd
 from datetime import datetime
-
-# Ensure project root is in sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from src.storage.db_manager import Database
 from datetime import datetime
-
 import re
 import json
 
-def normalize_json_string(text: str) -> str:
-    try:
-        json.loads(text)  # Validate
-        return text
-    except json.JSONDecodeError:
-        pass  # Continue cleaning
 
-    text = re.sub(r'(\b\w+\b)\s*:', r'"\1":', text)
+import re
+import ast
 
-    text = re.sub(r"(?<!\\)'", '"', text)
+def parse_log_string(log_string):
+    """
+    Parse a multiline log string into single-line log entries grouped by timestamp.
+    """
+    TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
 
-    text = re.sub(
-        r'"(\d{4}-\d{2})-"(\d{2})T(\d{2})":"(\d{2})":(\d{2}\.\d+Z)"',
-        r'"\1-\2T\3:\4:\5"',
-        text
+    entries = []
+    current_entry = []
+
+    for line in log_string.splitlines():
+        # Start of new entry
+        if TIMESTAMP_PATTERN.match(line):
+            if current_entry:
+                entries.append(_clean_entry(current_entry))
+                current_entry = []
+        current_entry.append(line)
+
+    # Last entry
+    if current_entry:
+        entries.append(_clean_entry(current_entry))
+
+    return entries
+
+
+def _clean_entry(entry_lines):
+    """Combine lines, remove \n and \t, collapse spaces to single line."""
+    combined = " ".join(entry_lines)
+    combined = re.sub(r'[\n\t]+', ' ', combined)  # replace \n and \t
+    combined = re.sub(r'\s+', ' ', combined)      # collapse multiple spaces
+    return combined.strip()
+
+
+def filter_logs_by_keywords(logs, keywords=['START RequestId', 'Start syncing the balance', 'Subscription balance and payment balance are not in sync']):
+    """
+    Filter logs that contain any of the specified keywords.
+
+    Args:
+        logs (list[str]): List of log entries (single-line format).
+        keywords (list[str]): Keywords to filter on.
+
+    Returns:
+        list[str]: Logs containing any of the keywords.
+    """
+    return [log for log in logs if any(keyword in log for keyword in keywords)]
+
+def extract_info(logs):
+    data = {
+        "RequestId": None,
+        "StartSyncBalance": None,
+        "BalanceNotInSync": None
+    }
+
+    # Regex for RequestId
+    requestid_pattern = re.compile(r"RequestId:\s*([a-f0-9-]+)")
+
+    # Loop through logs
+    for log in logs:
+        # Extract RequestId
+        if "RequestId" in log and data["RequestId"] is None:
+            match = requestid_pattern.search(log)
+            if match:
+                data["RequestId"] = match.group(1)
+
+        # Extract Start syncing balance JSON
+        if "Start syncing the balance" in log:
+            json_part = log.split("Start syncing the balance", 1)[-1].strip()
+            try:
+                # Convert pseudo-JSON (single quotes) to real Python dict
+                data["StartSyncBalance"] = ast.literal_eval(json_part)
+            except Exception:
+                data["StartSyncBalance"] = json_part  # fallback as raw text
+
+        # Extract Not in sync JSON
+        if "Subscription balance and payment balance are not in sync" in log:
+            json_part = log.split("not in sync", 1)[-1].strip()
+            try:
+                data["BalanceNotInSync"] = ast.literal_eval(json_part)
+            except Exception:
+                data["BalanceNotInSync"] = json_part  # fallback as raw text
+
+    return data
+
+
+def manual_parse(raw_str):
+    # Remove outer braces if present
+    s = raw_str.strip()
+    s = (s.replace("None", "null")
+        .replace("True", "true")
+        .replace("False", "false")
+        .replace("\\'", "'")        # remove escaped single quotes
+        .replace("'", '"')          # use double quotes for JSON
+        .replace("\\\\", "")        # remove stray backslashes
+        .replace("\\\\", "")        # remove stray backslashes
     )
 
-    def fix_notes_quotes(match):
-        value = match.group(1)
-        safe_value = value.replace('"', '\\"')
-        return f'"notes":"{safe_value}"'
+    colon_positions = [i for i, ch in enumerate(s) if ch == ':']
+    result = {}
 
-    text = re.sub(r'"notes":"(.*?)"', fix_notes_quotes, text, flags=re.DOTALL)
-
-    try:
-        json.loads(text)
-    except json.JSONDecodeError as e:
-        pass
-        #raise ValueError(f"Invalid JSON even after cleanup: {e}\n{text}")
-
-    return text
-
-
-def extract_json_objects(text, filename):
-    segments = re.split(r"INFO\s+Start syncing the balance", text)
-    merged_results = []
-
-    for segment in segments:
-        if not segment.strip():
+    for idx in colon_positions:
+        # ---- Get key (scan left) ----
+        j = idx - 1
+        while j >= 0 and s[j] not in "{,":
+            j -= 1
+        key = s[j+1:idx].strip().strip("'\" ")
+    
+        # ---- Get value (scan right) ----
+        k = idx + 1
+        while k < len(s) and s[k] in " '\"":
+            k += 1
+        # Skip if nested dict starts here
+        if k < len(s) and s[k] == '{':
             continue
-
-        results = []
-        brace_stack = 0
-        current = []
-
-        for char in segment:
-            if char == '{':
-                brace_stack += 1
-            if brace_stack > 0:
-                current.append(char)
-            if char == '}':
-                brace_stack -= 1
-                if brace_stack == 0 and current:
-                    results.append(''.join(current))
-                    current = []
-
-        merged_row = {}
-
-        for raw in results:
-            normalized = re.sub(r"(?<!\\)'", '"', raw)
-            normalized = normalize_json_string(normalized)
-            
-            try:
-                parsed = json.loads(normalized)
-                if "transaction" in parsed and isinstance(parsed["transaction"], dict):
-                    tx = parsed.pop("transaction")
-
-                    for k, v in tx.items():
-                        merged_row[f"transaction_{k}"] = v
-
-                merged_row.update(parsed)
-            except Exception as e:
-                print(str(filename))
-
-        error_match = re.search(r"ERROR\s+(.*?)\{", segment)
-        if error_match:
-            merged_row["error_message"] = error_match.group(1).strip()
-
-        if not merged_row or (
-            not any(k.startswith("transaction_") for k in merged_row)
-            and "userId" not in merged_row
-        ):
-            continue
-
-        if "subscriptionBalance" in merged_row and "paymentBalance" in merged_row:
-            merged_row["sync_status"] = "FAILED"
-        else:
-            merged_row["sync_status"] = "SUCCESS"
-
-        merged_results.append(merged_row)
-
-    return merged_results
+        # Otherwise, capture till comma or end
+        m = k
+        while m < len(s) and s[m] not in ",}":
+            m += 1
+        value = s[k:m].strip().strip("'\" ")
+    
+        if key and value:
+            result[key] = str(value)
+    
+    return result
 
 
 def parse_raw_table_to_parsed_logs():
@@ -141,37 +172,15 @@ def parse_raw_table_to_parsed_logs():
         if filename in ['.DS_Store', '000000.gz'] or "Start syncing the balance" not in raw_text:
             continue
 
-        filelist = ['2023-12-12-[$LATEST]2d79cb3e8a764a7ebe511af6e51c3f65']
-        #if len(raw_text) > 0:
-        if filename in filelist:
-            # Extract transactions
-            try:
-                transactions = extract_json_objects(raw_text, filename)
-                print(transactions)
-                #print(filename)
-                exit(0)
-            except Exception as e:
-                #pass
-                print(filename +  ' ' + str(e))
-                exit(1)
-            #print(transactions)
-        
-        
-    #         db.delete_rows("parsed_logs", "filename = ?", (filename,))
-
-    #         # Prepare rows for insertion
-    #         for tx in transactions:
-    #             tx["filename"] = filename
-    #             tx["parsed_at"] = datetime.utcnow().isoformat()
-    #             parsed_rows.append(tx)
-
-        
-
-    # # Insert new parsed rows
-    # if parsed_rows:
-    #     db.insert_rows_dynamic("parsed_logs", parsed_rows)
-    # else:
-    #     print("No JSON objects found in raw_data logs.")
+        all_logs_in_list = (parse_log_string(raw_text))
+        filtered_logs_in_list = filter_logs_by_keywords(all_logs_in_list)
+        data = extract_info(filtered_logs_in_list)
+        print(data)
+        valid = manual_parse(str(data))
+        print('\n')
+        print(dict(valid))
+        print('\n')
+        print('\n')
 
     db.close_connection()
 

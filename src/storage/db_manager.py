@@ -172,7 +172,7 @@ class Database:
         new_cols = all_keys - existing_cols
         for col in new_cols:
             try:
-                cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN '{col}' TEXT")
+                cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN '{col.lower()}' TEXT")
             except sqlite3.OperationalError as e:
                 if "duplicate column" in str(e).lower():
                     continue  # Safe to ignore duplicates
@@ -186,10 +186,11 @@ class Database:
 
         for row in rows:
             values = [str(row.get(c)) if isinstance(row.get(c), (list, dict)) else row.get(c) for c in cols_order]
+            # values = ["" if row.get(c) is None else str(row.get(c)) for c in cols_order]
             cursor.execute(f"INSERT INTO {table_name} ({col_names_str}) VALUES ({placeholders})", values)
 
         self.connection.commit()
-        print(f"Inserted {len(rows)} rows into {table_name}.")
+        #print(f"Inserted {len(rows)} rows into {table_name}.")
 
     def delete_rows(self, table_name, where_clause=None, params=None):
             """

@@ -16,6 +16,7 @@ import json
 import re
 import csv
 import os
+import ast
 
 ERROR_LOG_FILE = "failed_parses.csv"
 NO_LOGS_FILE = "no_transactions.csv"
@@ -52,154 +53,251 @@ def log_failed_parse(filename: str, raw_snippet: str):
             writer.writerow(["filename", "raw_snippet"])
         writer.writerow([filename, raw_snippet[:500]])  # Limit snippet length
 
+def parse_log_string(log_string):
+    """
+    Parse a multiline log string into single-line log entries grouped by timestamp.
+    """
+    TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
 
-def sanitize_row(row):
-    clean = {}
-    for k, v in row.items():
-        # Skip nested dicts/lists
-        if isinstance(v, (dict, list)):
+    entries = []
+    current_entry = []
+
+    for line in log_string.splitlines():
+        # Start of new entry
+        if TIMESTAMP_PATTERN.match(line):
+            if current_entry:
+                entries.append(_clean_entry(current_entry))
+                current_entry = []
+        current_entry.append(line)
+
+    # Last entry
+    if current_entry:
+        entries.append(_clean_entry(current_entry))
+
+    return entries
+
+
+def _clean_entry(entry_lines):
+    """Combine lines, remove \n and \t, collapse spaces to single line."""
+    combined = " ".join(entry_lines)
+    combined = re.sub(r'[\n\t]+', ' ', combined)  # replace \n and \t
+    combined = re.sub(r'\s+', ' ', combined)      # collapse multiple spaces
+    return combined.strip()
+
+
+def filter_logs_by_keywords(logs, keywords=['START RequestId', 'Start syncing the balance', 'Subscription balance and payment balance are not in sync']):
+    """
+    Filter logs that contain any of the specified keywords.
+
+    Args:
+        logs (list[str]): List of log entries (single-line format).
+        keywords (list[str]): Keywords to filter on.
+
+    Returns:
+        list[str]: Logs containing any of the keywords.
+    """
+    return [log for log in logs if any(keyword in log for keyword in keywords)]
+
+def extract_info_dep(logs):
+    data = {
+        "RequestId": None,
+        "StartSyncBalance": None,
+        "BalanceNotInSync": None
+    }
+
+    # Regex for RequestId
+    requestid_pattern = re.compile(r"RequestId:\s*([a-f0-9-]+)")
+
+    # Loop through logs
+    for log in logs:
+        # Extract RequestId
+        if "RequestId" in log and data["RequestId"] is None:
+            match = requestid_pattern.search(log)
+            if match:
+                data["RequestId"] = match.group(1)
+
+        # Extract Start syncing balance JSON
+        if "Start syncing the balance" in log:
+            timestamp_str = log.split()[0]
+            dt = datetime.strptime(timestamp_str[:10], "%Y-%m-%d").date()
+            json_part = log.split("Start syncing the balance", 1)[-1].strip()
+            try:
+                data["StartSyncBalance"] = ast.literal_eval(json_part)
+            except Exception:
+                data["StartSyncBalance"] = json_part
+            data['startsynctime'] = str(dt)
+
+        if "Subscription balance and payment balance are not in sync" in log:
+            json_part = log.split("not in sync", 1)[-1].strip()
+            #print(json_part)
+            try:
+                data["BalanceNotInSync"] = ast.literal_eval(json_part)
+            except Exception:
+                data["BalanceNotInSync"] = json_part  # fallback as raw text
+    return data
+
+import re
+import ast
+from datetime import datetime
+from collections import defaultdict
+
+def extract_info(logs):
+    requestid_pattern = re.compile(r"RequestId:\s*([a-f0-9-]+)")
+    id_inline_pattern = re.compile(r"\b([a-f0-9-]{36})\b")
+
+    grouped_data = defaultdict(lambda: {
+        "RequestId": None,
+        "StartSyncBalance": [],
+        "BalanceNotInSync": []
+    })
+
+    current_request_id = None
+
+    for log in logs:
+        # --- Check for new RequestId in START line ---
+        match = requestid_pattern.search(log)
+        if match:
+            current_request_id = match.group(1)
+            if grouped_data[current_request_id]["RequestId"] is None:
+                grouped_data[current_request_id]["RequestId"] = current_request_id
             continue
-        # Convert booleans to int (True → 1, False → 0)
-        if isinstance(v, (float,int)):
-            v = str(v)
 
-        if isinstance(v, bool):
-            v = "1" if v else "0"
+        # --- If no "RequestId:" found, check for inline ID (INFO/ERROR lines) ---
+        if not current_request_id:
+            inline_match = id_inline_pattern.search(log)
+            if inline_match:
+                current_request_id = inline_match.group(1)
+                if grouped_data[current_request_id]["RequestId"] is None:
+                    grouped_data[current_request_id]["RequestId"] = current_request_id
 
-        clean[k] = v
-    return clean
+        # Skip if still no RequestId
+        if not current_request_id:
+            continue
+
+        # --- Extract StartSyncBalance ---
+        if "Start syncing the balance" in log:
+            timestamp_str = log.split()[0]
+            dt = datetime.strptime(timestamp_str[:10], "%Y-%m-%d").date()
+            json_part = log.split("Start syncing the balance", 1)[-1].strip()
+
+            try:
+                parsed_data = ast.literal_eval(json_part)
+            except Exception:
+                parsed_data = json_part
+
+            grouped_data[current_request_id]["StartSyncBalance"].append({
+                "time": str(dt),
+                "data": parsed_data
+            })
+
+        # --- Extract BalanceNotInSync ---
+        elif "Subscription balance and payment balance are not in sync" in log:
+            json_part = log.split("not in sync", 1)[-1].strip()
+
+            try:
+                parsed_data = ast.literal_eval(json_part)
+            except Exception:
+                parsed_data = json_part
+
+            grouped_data[current_request_id]["BalanceNotInSync"].append(parsed_data)
+
+    return list(grouped_data.values())
 
 
-
-def normalize_json_string(text: str) -> str:
+def find_metadata_bounds(raw_str: str):
     """
-    Clean malformed JSON-like strings:
-    - Quote unquoted keys
-    - Replace single with double quotes
-    - Fix malformed datetime patterns
-    - Escape notes fields properly
+    Returns (start_index, end_index) of metadata JSON inside raw_str.
+    If not found, returns (None, None).
     """
-    # Quote unquoted keys
-    text = re.sub(r'(\b\w+\b)\s*:', r'"\1":', text)
-
-    # Replace single quotes with double quotes
-    text = re.sub(r"(?<!\\)'", '"', text)
-
-    # Fix datetime patterns if broken
-    text = re.sub(
-        r'"(\d{4}-\d{2})-"(\d{2})T(\d{2})":"(\d{2})":(\d{2}\.\d+Z)"',
-        r'"\1-\2T\3:\4:\5"',
-        text
+    # Clean string similar to manual_parse
+    s = (raw_str.strip()
+        .replace("None", "null")
+        .replace("True", "true")
+        .replace("False", "false")
+        .replace("\\'", "'")
+        .replace("'", '"')
+        .replace("\\\\", "")
     )
 
-    # Escape quotes inside "notes"
-    def fix_notes_quotes(match):
-        value = match.group(1)
-        safe_value = value.replace('"', '\\"')
-        return f'"notes":"{safe_value}"'
+    # Locate 'metadata'
+    meta_pos = s.find('metadata')
+    if meta_pos == -1:
+        return None, None
 
-    text = re.sub(r'"notes":"(.*?)"', fix_notes_quotes, text, flags=re.DOTALL)
+    # Find first '{' after 'metadata'
+    start = s.find("{", meta_pos)
+    if start == -1:
+        return None, None
 
-    return text
+    # Match braces to find end
+    brace_count = 0
+    for i in range(start, len(s)):
+        if s[i] == '{':
+            brace_count += 1
+        elif s[i] == '}':
+            brace_count -= 1
+            if brace_count == 0:
+                return start, i+1  # return start and end index
 
-def flatten_dict(prefix: str, value: dict) -> dict:
-    """
-    Recursively flatten dict fields into key_prefix_subkey format.
-    Skip lists entirely.
-    """
-    flat = {}
-    for k, v in value.items():
-        new_key = f"{prefix}_{k}" if prefix else k
-        if isinstance(v, dict):
-            flat.update(flatten_dict(new_key, v))
-        elif isinstance(v, list):
-            # Skip lists entirely (do not insert into DB)
-            continue
-        else:
-            flat[new_key] = v
-    return flat
+    return None, None
 
 
-def extract_json_objects(text: str, filename: str):
-    """
-    Parse logs into rows per sync cycle:
-    - Split at 'Start syncing the balance'
-    - Normalize malformed JSONs
-    - Flatten all dict fields (transaction + other dicts)
-    - Log failures into CSV for later review
-    """
+def manual_parse(raw_str):
+    resultList = []
+    for r in raw_str:
+        # Remove outer braces if present
+        s = str(r).strip()
+        s = (s.replace("None", "null")
+            .replace("True", "true")
+            .replace("False", "false")
+            .replace("[", "")
+            .replace("\\'", "'")        # remove escaped single quotes
+            .replace("'", '"')          # use double quotes for JSON
+            .replace("\\\\", "")        # remove stray backslashes
+        )
 
-    segments = re.split(r"INFO\s+Start syncing the balance", text)
-    merged_results = []
+        start_meta, end_meta = find_metadata_bounds(s)
 
-    for segment in segments:
-        if not segment.strip():
-            continue
+        is_meta = True
+        if start_meta is None or end_meta is None:
+            is_meta = False
 
-        # Extract JSON objects using brace matching
-        results = []
-        brace_stack = 0
-        current = []
+        colon_positions = [i for i, ch in enumerate(s) if ch == ':']
+        result = {}
 
-        for char in segment:
-            if char == '{':
-                brace_stack += 1
-            if brace_stack > 0:
-                current.append(char)
-            if char == '}':
-                brace_stack -= 1
-                if brace_stack == 0 and current:
-                    results.append(''.join(current))
-                    current = []
+        for idx in colon_positions:
+            if is_meta:
+                if idx > start_meta and idx < end_meta:
+                    continue
 
-        merged_row = {}
-
-        # Parse each JSON block
-        for raw in results:
-            normalized = normalize_json_string(raw)
-            try:
-                parsed = json.loads(normalized)
-
-                # --- Flatten transaction object first ---
-                if "transaction" in parsed and isinstance(parsed["transaction"], dict):
-                    tx = parsed.pop("transaction")
-                    merged_row.update(flatten_dict("transaction", tx))
-
-                # --- Flatten all remaining dict fields ---
-                extra_flat = {}
-                for key, value in parsed.items():
-                    if isinstance(value, dict):
-                        extra_flat.update(flatten_dict(key, value))
-                    else:
-                        extra_flat[key] = value
-
-                merged_row.update(extra_flat)
-
-            except json.JSONDecodeError:
-                log_failed_parse(filename, raw)
+            # ---- Get key (scan left) ----
+            j = idx - 1
+            while j >= 0 and s[j] not in "{,":
+                j -= 1
+            key = s[j+1:idx].strip().strip("'\" ")
+        
+            # ---- Get value (scan right) ----
+            k = idx + 1
+            while k < len(s) and s[k] in " '\"":
+                k += 1
+            # Skip if nested dict starts here
+            if k < len(s) and s[k] == '{':
                 continue
+            # Otherwise, capture till comma or end
+            m = k
+            while m < len(s) and s[m] not in ",}":
+                m += 1
+            value = s[k:m].strip().strip("'\" ")
+        
+            if key and value:
+                result[key] = value
 
-        # Extract error message (if exists)
-        error_match = re.search(r"ERROR\s+(.*?)\{", segment)
-        if error_match:
-            merged_row["error_message"] = error_match.group(1).strip()
-
-        # Skip meaningless rows
-        if not merged_row or (
-            not any(k.startswith("transaction_") for k in merged_row)
-            and "userId" not in merged_row
-        ):
-            continue
-
-        # Determine sync status
-        if "subscriptionBalance" in merged_row and "paymentBalance" in merged_row:
-            merged_row["sync_status"] = "FAILED"
-        else:
-            merged_row["sync_status"] = "SUCCESS"
-
-        merged_results.append(merged_row)
-
-    return merged_results
+        # print(result)
+        # print('\n')
+        # print('\n')
+        # print('\n')
+        resultList.append(result)
+    return resultList 
 
 
 
@@ -227,70 +325,56 @@ def parse_raw_table_to_parsed_logs():
         db.close_connection()
         return
 
-    parsed_rows = []
-
     for _, row in raw_df.iterrows():
         raw_text = row["raw_string"]
         filename = row.get("filename", None)
 
+
         # Skip unwanted files
         if filename in ['.DS_Store', '000000.gz'] or "Start syncing the balance" not in raw_text:
             continue
+        
+        # if filename == '2024-04-22-[$LATEST]39466a8cfcfd44b699f8c389d13ac3e9':
+        # Parse a log file into list
+        all_logs_in_list = (parse_log_string(raw_text))
+        #print(all_logs_in_list)
 
-        # # Debug: process only specific file for testing
-        # filelist = ['2023-12-24-[$LATEST]faad1fc6381f4c409465ec06cdc8c426',
-        #             '2023-12-23-[$LATEST]c4330be306f14007baaaea1aa8f3fd5a',
-        #             '2024-01-02-[$LATEST]2c6cb52879314d37bd0719a1faa88fea',
-        #             '2024-04-02-[$LATEST]307a7bb8a3654729a001a516e53a8ef1'
-        #             ]#'2024-04-01-[$LATEST]85c10dcd117f402199111b91b204fa5c']
+        #filter list as per important keywords
+        filtered_logs_in_list = filter_logs_by_keywords(all_logs_in_list)
 
-        # #filelist = ['2024-04-02-[$LATEST]307a7bb8a3654729a001a516e53a8ef1']
-        # if filename in filelist:
-            # Extract transactions
-        transactions = extract_json_objects(raw_text, filename)
+        if not filtered_logs_in_list:
+            no_logs_records(filename, raw_text)
+            continue
 
-        if len(transactions) ==0:
-            no_logs_records(filename)
+        #Extract info from list
+        data = extract_info(filtered_logs_in_list)
+        
+        #Convert info into a json string => Manual Parsing
 
+        all_transactions = manual_parse(data)
 
         db.delete_rows("parsed_logs", "filename = ?", (filename,))
 
-        # Prepare rows for insertion
-        for tx in transactions:
-            tx.pop("_aws", None)  # drop CloudWatch metrics
-            if "metadata" in tx and isinstance(tx["metadata"], dict):
-                    tx["metadata"] = json.dumps(tx["metadata"])
+
+        for transactions in all_transactions:
+            transactions = dict(transactions)
+            transactions["transaction_id"] = transactions.pop("id", None)
+
+            transactions["filename"] = filename
+            transactions["parsed_at"] = datetime.now()
+
+            if not transactions:
+                log_failed_parse(filename)
+                continue
+
+            try:
+                transactions = {str(k): str(v) for k, v in transactions.items()}
+                db.insert_rows_dynamic("parsed_logs", [transactions])
+
+            except Exception as db_err:
+                error_while_insert(filename, str(db_err))
+                continue
             
-
-
-            tx["filename"] = filename
-            tx["parsed_at"] = datetime.utcnow().isoformat()
-            clean_tx = sanitize_row(tx)
-
-            parsed_rows.append(clean_tx)
-
-        
-
-
-    for row in parsed_rows:
-        try:
-            #sanitized = sanitize_row(row)
-            db.insert_rows_dynamic("parsed_logs", [row])
-            
-        except sqlite3.IntegrityError as e:
-            print(f"\n IntegrityError in row from file: {row.get('filename')}")
-            # print(f"Row content: {json.dumps(row, indent=2)}")
-            # print(f"Error: {e}\n")
-            error_while_insert(filename, row)
-
-    # Insert new parsed rows
-    # parsed_rows = [sanitize_row(r) for r in parsed_rows]
-
-    # if parsed_rows:
-    #     db.insert_rows_dynamic("parsed_logs", parsed_rows)
-    # else:
-    #     print("No JSON objects found in raw_data logs.")
-
     db.close_connection()
 
 
