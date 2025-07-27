@@ -1,8 +1,9 @@
 from dash import Dash, dcc, html, Input, Output
 import dash_bootstrap_components as dbc
 from src.visualization.layout.components.header import header
-from src.visualization.layout.reconciliation import reconciliation_layout
+from src.visualization.layout.layout_reconciliation import reconciliation_layout
 from src.visualization.layout.components.footer import app_footer
+from src.visualization import backend
 
 # Initialize Dash with Bootstrap
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
@@ -37,6 +38,7 @@ def render_tab_content(tab):
         return html.Div("Anomalies View (to be built)")
 
 
-# Main Entry Point
+backend.register_callbacks(app)
+
 if __name__ == "__main__":
     app.run(debug=True)

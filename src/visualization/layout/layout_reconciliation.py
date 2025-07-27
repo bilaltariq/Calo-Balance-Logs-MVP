@@ -6,26 +6,6 @@ from src.storage.db_manager import Database
 import pandas as pd
 from dash import Output, Input
 
-def get_summary_results(reconcile_df):
-    count_users = (
-        reconcile_df[
-            reconcile_df['new_balance'] != (reconcile_df['old_balance'] + reconcile_df['amount'] - reconcile_df['vat'])
-        ]['user_id']
-        .nunique()
-    )
-
-    # Calculate total mismatch amount
-    total_mismatch = (
-        (reconcile_df['new_balance'] - (reconcile_df['old_balance'] + reconcile_df['amount'] - reconcile_df['vat']))
-        [reconcile_df['new_balance'] != (reconcile_df['old_balance'] + reconcile_df['amount'] - reconcile_df['vat'])]
-        .sum()
-    )
-
-    last_sync = reconcile_df['timestamp'].max()
-
-    return count_users, total_mismatch, last_sync
-    
-
 def get_reconcile_filters(df):
     """
     Fetch distinct filter values from the reconcile table.
@@ -58,14 +38,15 @@ def reconciliation_layout():
         # Title
         html.H2("Reconciliation Dashboard", className="text-center my-4 fw-bold"),
 
-        # Filters Card
+        # Filters Card (full width with light blue background)
         dbc.Row([
             dbc.Col(
                 dbc.Card([
-                    dbc.CardHeader(html.H5("Filters", className="mb-0 fw-bold")),
+                    dbc.CardHeader(html.H5("Filters", className="mb-0 fw-bold text-dark"),
+                                   style={"backgroundColor": "#f8f9fa"}),  # Bootstrap primary blue
                     dbc.CardBody([
 
-                        # User ID Dropdown (populated from DB)
+                        # User ID Dropdown
                         dbc.Row([
                             dbc.Col([
                                 html.Label("User ID", className="fw-bold"),
@@ -78,7 +59,7 @@ def reconciliation_layout():
                             ], width=12, className="mb-3")
                         ]),
 
-                        #  Date Range (min/max auto-filled)
+                        # Date Range
                         dbc.Row([
                             dbc.Col([
                                 html.Label("Date Range", className="fw-bold"),
@@ -92,7 +73,6 @@ def reconciliation_layout():
                             ], width=12, className="mb-3")
                         ]),
 
-
                         # Currency Filter
                         dbc.Row([
                             dbc.Col([
@@ -105,54 +85,56 @@ def reconciliation_layout():
                                 )
                             ], width=12)
                         ]),
-                        # Apply Filters Button
+
+                        # Buttons Row
                         dbc.Row([
                             dbc.Col([
-                                dbc.Button("Apply Filters", id="btn-apply-filters", color="primary", className="mt-3 w-100")
-                            ], width=12)
-                        ])
+                                dbc.Button("Apply Filters", id="btn-apply-filters", color="success", className="mt-3 w-100")
+                            ], width=6, className="mb-2"),
 
+                            dbc.Col([
+                                dbc.Button("Export Transactions", id="btn-export", color="info", className="mt-3 w-100"),
+                                dcc.Store(id="store-filtered-data"),
+                                dcc.Download(id="download-transactions")
+                            ], width=6, className="mb-2"),
+                        ]),
                     ])
-                ], className="shadow-sm"), width=6
+                ], className="shadow-sm mb-5", style={"border": "1px solid #ccc", "borderRadius": "8px"}), width=9  # 75% width
             )
-        ], justify="center", className="mb-5"),
+        ], justify="center"),
 
-# Summary & Table Card
+        # Results Card (full width with light gray header)
         dbc.Row([
             dbc.Col(
                 dbc.Card([
-                    dbc.CardHeader(html.H5("Reconciliation Results", className="mb-0 fw-bold")),
+                    dbc.CardHeader(html.H5("Reconciliation Results", className="mb-0 fw-bold text-dark"),
+                                   style={"backgroundColor": "#f8f9fa"}),
                     dbc.CardBody([
 
-                        # Summary Stats Row
+                        # Summary Stats Row with subtle background
                         dbc.Row([
                             dbc.Col(html.Div([
                                 html.H6("Total Users with Discrepancies", className="fw-bold"),
-                                html.P(id="summary-total-users", children="0", className="fs-5"),
-                            ]), md=4, className="text-center"),
+                                html.P(id="summary-total-users", children="0", className="fs-5 text-primary"),
+                            ], className="p-2 bg-light rounded"), md=4, className="text-center"),
 
                             dbc.Col(html.Div([
                                 html.H6("Total Amount Mismatch", className="fw-bold"),
-                                html.P(id="summary-total-mismatch", children="0 BHD", className="fs-5")
-                            ]), md=4, className="text-center"),
+                                html.P(id="summary-total-mismatch", children="0 BHD", className="fs-5 text-danger"),
+                            ], className="p-2 bg-light rounded"), md=4, className="text-center"),
 
                             dbc.Col(html.Div([
                                 html.H6("Last Sync Date", className="fw-bold"),
-                                html.P(id="summary-last-sync", children="--", className="fs-5")
-                            ]), md=4, className="text-center"),
+                                html.P(id="summary-last-sync", children="--", className="fs-5 text-secondary"),
+                            ], className="p-2 bg-light rounded"), md=4, className="text-center"),
                         ], className="mb-4"),
 
-                        # Export Button
-                        html.Div([
-                            dbc.Button("Export Transactions", id="btn-export", color="secondary", className="mb-3 float-end"),
-                            dcc.Download(id="download-transactions")  # For download callback
-                        ]),
-
-                        # Data Table (show all reconcile columns)
+                        # Data Table
                         dash_table.DataTable(
                             id='reconciliation-table',
                             columns=[
-                                {'name': 'ID', 'id': 'transaction_id'},
+                                {'name': 'Timestamp', 'id': 'timestamp'},
+                                {'name': 'Transaction ID', 'id': 'transaction_id'},
                                 {'name': 'User ID', 'id': 'user_id'},
                                 {'name': 'Currency', 'id': 'currency'},
                                 {'name': 'Amount', 'id': 'amount'},
@@ -161,35 +143,31 @@ def reconciliation_layout():
                                 {'name': 'New Balance', 'id': 'new_balance'},
                                 {'name': 'Payment Balance', 'id': 'payment_balance'},
                                 {'name': 'Subscription Balance', 'id': 'subscription_balance'},
-                                {'name': 'Event Type', 'id': 'event_type'},
-                                {'name': 'Timestamp', 'id': 'timestamp'}
+                                {'name': 'Event Type', 'id': 'event_type'}
                             ],
                             page_size=20,
                             data=reconcile_df.to_dict('records'),
-                            style_table={'overflowX': 'auto' },
-                            style_cell={'textAlign': 'center', 'padding': '8px'},
-                            style_header={'backgroundColor': '#f4f4f4', 'fontWeight': 'bold'}
+                            style_table={
+                                'overflowX': 'auto',
+                                'width': '100%',
+                                'minWidth': '100%'
+                            },
+                            style_cell={
+                                'textAlign': 'center',
+                                'padding': '8px',
+                                'minWidth': '100px',
+                                'width': 'auto',
+                                'maxWidth': '200px',
+                                'whiteSpace': 'normal'
+                            },
+                            style_header={
+                                'backgroundColor': '#f4f4f4',
+                                'fontWeight': 'bold'
+                            }
                         )
                     ])
-                ], className="shadow-sm"), width=10
+                ], className="shadow-sm", style={"border": "1px solid #ccc", "borderRadius": "8px"}), width=12
             )
         ], justify="center")
 
     ], fluid=True)
-
-
-from dash import callback
-@callback(
-    [
-        Output("summary-total-users", "children"),
-        Output("summary-total-mismatch", "children"),
-        Output("summary-last-sync", "children"),
-    ],
-    Input("btn-apply-filters", "n_clicks"),
-    prevent_initial_call=False
-)
-def update_summary(n_clicks):
-    reconcile_df = get_data()
-    count_users, total_mismatch, last_sync = get_summary_results(reconcile_df)
-
-    return str(count_users), str(total_mismatch), last_sync
