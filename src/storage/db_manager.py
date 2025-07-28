@@ -5,13 +5,13 @@ import os
 
 class Database:
     def __init__(self, db_name=None):
-            # Determine project root (2 levels up from this file)
-            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-            if db_name is None:
-                db_name = os.path.join(project_root, "data/transformed/calo_balances.db")
+        # Determine project root (2 levels up from this file)
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        if db_name is None:
+            db_name = os.path.join(project_root, "data/transformed/calo_balances.db")
 
-            self.db_name = db_name
-            self.connection = None
+        self.db_name = db_name
+        self.connection = None
 
 
     def connect(self):
