@@ -8,6 +8,8 @@ from dash import Dash, dcc, html, dash_table, Input, Output
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.graph_objects as go
+from dash import Output, Input, State, callback
+import pandas as pd
 
 def prepare_anomaly_data():
     """Fetch reconcile data and calculate anomaly flags and mismatch amounts."""
@@ -54,8 +56,6 @@ def get_data():
     db.close_connection()
     return reconcile_df
 
-from dash import Output, Input, State, callback
-import pandas as pd
 
 def register_callbacks(app):
 
@@ -71,11 +71,11 @@ def register_callbacks(app):
         State("filter-user-id", "value"),
         State("filter-date-range", "start_date"),
         State("filter-date-range", "end_date"),
-        State("filter-currency", "value"),
+        State("filter-country", "value"),              # Changed filter to country
+        State("filter-mismatch-type", "value"),        # New mismatch type filter
         prevent_initial_call=False
     )
-    def apply_filters(n_clicks, selected_users, start_date, end_date, selected_currencies):
-
+    def apply_filters(n_clicks, selected_users, start_date, end_date, selected_country, selected_mismatch_types):
         reconcile_df = get_data()
 
         # Ensure datetime
@@ -86,9 +86,13 @@ def register_callbacks(app):
         if selected_users:
             reconcile_df = reconcile_df[reconcile_df['user_id'].isin(selected_users)]
 
-        # Apply currency filter
-        if selected_currencies:
-            reconcile_df = reconcile_df[reconcile_df['currency'].isin(selected_currencies)]
+        # Apply country filter (single select)
+        if selected_country:
+            reconcile_df = reconcile_df[reconcile_df['country'] == selected_country]
+
+        # Apply mismatch type filter (multi select)
+        if selected_mismatch_types:
+            reconcile_df = reconcile_df[reconcile_df['mismatch_type'].isin(selected_mismatch_types)]
 
         # Apply date filter
         start = pd.to_datetime(start_date).date() if start_date else None
@@ -122,6 +126,7 @@ def register_callbacks(app):
         return str(count_users), str(formatted_total_mismatch), str(last_sync), reconcile_df.to_dict('records'), reconcile_df.to_dict('records')
 
 
+
     @callback(
         Output("download-transactions", "data"),
         Input("btn-export", "n_clicks"),
@@ -146,34 +151,37 @@ def register_callbacks(app):
             Output('currency-wise-bar', 'figure'),
             Output('running-total-line', 'figure'),
             Output('global-user-filter', 'options'),
-            Output('currency-filter', 'options'),
+            Output('country-filter', 'options'),
+            Output('mismatch-type-filter', 'options'),  # NEW
         ],
         [
             Input('global-user-filter', 'value'),
-            Input('currency-filter', 'value'),
+            Input('country-filter', 'value'),
+            Input('mismatch-type-filter', 'value'),     # NEW
             Input('date-filter', 'start_date'),
             Input('date-filter', 'end_date')
         ]
     )
-    def update_charts(user_filter, currency_filter, start_date, end_date):
+    def update_charts(user_filter, country_filter, mismatch_filter, start_date, end_date):
         df = prepare_data()
-        df = df.rename(columns={'transaction_id':'id'})
-        
+        df = df.rename(columns={'transaction_id': 'id'})
+
         df_users = df.copy()
-        
+
         # Apply filters
-        if currency_filter:
-            df = df[df['currency'] == currency_filter]
+        if country_filter:
+            df = df[df['country'] == country_filter]
+        if mismatch_filter:
+            df = df[df['mismatch_type'].isin(mismatch_filter)]
         if start_date and end_date:
             df = df[(df['timestamp'] >= start_date) & (df['timestamp'] <= end_date)]
         if user_filter:
             df = df[df['user_id'].isin(user_filter)]
 
-
         # Dropdown options
-        currency_options = [{'label': c, 'value': c} for c in df['currency'].dropna().unique()]
+        country_options = [{'label': c, 'value': c} for c in df['country'].dropna().unique()]
         user_options = [{'label': u, 'value': u} for u in df_users['user_id'].dropna().unique()]
-
+        mismatch_options = [{'label': m, 'value': m} for m in df['mismatch_type'].dropna().unique()]
 
         # ---- 1. Mismatch Trend Over Time ----
         trend = df.groupby(df['timestamp'].dt.date)['is_mismatch'].sum().reset_index()
@@ -207,9 +215,9 @@ def register_callbacks(app):
         fig_balance.add_trace(go.Bar(x=balance_df['user_id'], y=balance_df['new_balance'], name='New Balance'))
         fig_balance.update_layout(barmode='group', title="Balance Change per User")
 
-        # ---- 6. Currency-wise Mismatches ----
-        currency_df = df[df['is_mismatch']].groupby('currency')['id'].count().reset_index()
-        fig_currency = px.bar(currency_df, x='currency', y='id', title="Mismatches per Currency")
+        # ---- 6. Country-wise Mismatches (renamed from currency-wise) ----
+        country_df = df[df['is_mismatch']].groupby('country')['id'].count().reset_index()
+        fig_country = px.bar(country_df, x='country', y='id', title="Mismatches per Country")
 
         # ---- 7. Running Total vs Expected ----
         df_sorted = df.sort_values('timestamp')
@@ -222,10 +230,14 @@ def register_callbacks(app):
                                         mode='lines', name='Expected'))
         fig_running.update_layout(title="Running Total: Actual vs Expected")
 
-        return (fig_trend, fig_volume, fig_distribution, fig_pie,
-                fig_balance, fig_currency, fig_running, user_options, currency_options)
+        return (
+            fig_trend, fig_volume, fig_distribution, fig_pie,
+            fig_balance, fig_country, fig_running,
+            user_options, country_options, mismatch_options
+        )
 
 
+    # ----------------- ANOMALY CALLBACK -----------------
     @callback(
         [
             # Graph outputs
@@ -237,26 +249,30 @@ def register_callbacks(app):
             Output('anomaly-table', 'data'),
 
             # Filter options
-            Output('anomaly-currency-filter', 'options'),
+            Output('anomaly-country-filter', 'options'),
             Output('anomaly-user-filter', 'options'),
+            Output('anomaly-mismatch-type-filter', 'options'),  # NEW
 
             # Set default date range
             Output('anomaly-date-filter', 'start_date'),
             Output('anomaly-date-filter', 'end_date'),
         ],
         [
-            Input('anomaly-currency-filter', 'value'),
+            Input('anomaly-country-filter', 'value'),
             Input('anomaly-user-filter', 'value'),
+            Input('anomaly-mismatch-type-filter', 'value'),  # NEW
             Input('anomaly-date-filter', 'start_date'),
             Input('anomaly-date-filter', 'end_date')
         ]
     )
-    def update_anomaly_charts(currency_filter, user_filter, start_date, end_date):
+    def update_anomaly_charts(country_filter, user_filter, mismatch_filter, start_date, end_date):
         df = prepare_anomaly_data()
 
         # Apply filters
-        if currency_filter:
-            df = df[df['currency'] == currency_filter]
+        if country_filter:
+            df = df[df['country'] == country_filter]
+        if mismatch_filter:
+            df = df[df['mismatch_type'].isin(mismatch_filter)]
         if user_filter:
             df = df[df['user_id'] == user_filter]
         if start_date and end_date:
@@ -266,8 +282,9 @@ def register_callbacks(app):
         anomalies = df[df['is_anomaly']]
 
         # Dropdown options
-        currency_options = [{'label': c, 'value': c} for c in df['currency'].dropna().unique()]
+        country_options = [{'label': c, 'value': c} for c in df['country'].dropna().unique()]
         user_options = [{'label': u, 'value': u} for u in df['user_id'].dropna().unique()]
+        mismatch_options = [{'label': m, 'value': m} for m in df['mismatch_type'].dropna().unique()]
 
         # Default date range
         start_date_default = df['timestamp'].min()
@@ -332,8 +349,9 @@ def register_callbacks(app):
             fig_drift,
             fig_heatmap,
             table_data,
-            currency_options,
+            country_options,
             user_options,
+            mismatch_options,
             start_date_default,
             end_date_default
         )

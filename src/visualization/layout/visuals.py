@@ -11,16 +11,19 @@ def get_filters(df):
     """
     Fetch distinct filter values from the reconcile table.
     """
-    # Distinct currencies
-    currencies = sorted(df['currency'].dropna().unique().tolist())
-
+    # Distinct countries (mapped from currency)
+    countries = sorted(df['country'].dropna().unique().tolist())
     user_ids = sorted(df['user_id'].dropna().unique().tolist())
 
+    # Mismatch types
+    mismatch_types = sorted(df['mismatch_type'].dropna().unique().tolist())
+
+    # Date range
     df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     min_date = df['timestamp'].min()
     max_date = df['timestamp'].max()
 
-    return currencies, user_ids, min_date, max_date
+    return countries, mismatch_types, user_ids, min_date, max_date
 
 def get_data():
     db = Database()
@@ -32,7 +35,7 @@ def get_data():
 def trends_layout():
 
     df = get_data()
-    currencies, user_ids, min_date, max_date = get_filters(df)
+    countries, mismatch_types, user_ids, min_date, max_date = get_filters(df)
 
     return dbc.Container([
         dbc.Row([
@@ -47,20 +50,33 @@ def trends_layout():
                     dbc.CardBody([
                         html.Div(
                             "Use these filters to refine all visualizations on this dashboard. "
-                            "Filters apply to currency, specific users, and date range.",
+                            "Filters apply to country, mismatch type, specific users, and date range.",
                             className="text-muted mb-3"
                         ),
                         dbc.Row([
+                            # Country filter (single select)
                             dbc.Col(
                                 dcc.Dropdown(
-                                    id='currency-filter',
-                                    placeholder="Filter by Currency",
+                                    id='country-filter',
+                                    placeholder="Filter by Country",
                                     multi=False,
-                                    options=[{'label': u, 'value': u} for u in currencies],
+                                    options=[{'label': c, 'value': c} for c in countries],
                                     className="mb-2"
                                 ),
                                 width=3
                             ),
+                            # Mismatch Type filter (multi-select)
+                            dbc.Col(
+                                dcc.Dropdown(
+                                    id='mismatch-type-filter',
+                                    placeholder="Filter by Mismatch Type",
+                                    multi=True,
+                                    options=[{'label': m, 'value': m} for m in mismatch_types],
+                                    className="mb-2"
+                                ),
+                                width=3
+                            ),
+                            # User ID filter
                             dbc.Col(
                                 dcc.Dropdown(
                                     id='global-user-filter',
@@ -71,6 +87,7 @@ def trends_layout():
                                 ),
                                 width=3
                             ),
+                            # Date filter
                             dbc.Col(
                                 dcc.DatePickerRange(
                                     id='date-filter',
@@ -83,7 +100,7 @@ def trends_layout():
                                     display_format="YYYY-MM-DD",
                                     className="mb-2"
                                 ),
-                                width=6
+                                width=3
                             ),
                         ])
                     ])

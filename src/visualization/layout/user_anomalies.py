@@ -7,7 +7,6 @@ import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from src.storage.db_manager import Database
 
-
 def anomalies_layout():
     return dbc.Container([
 
@@ -23,20 +22,35 @@ def anomalies_layout():
                     dbc.CardHeader("Global Filters"),
                     dbc.CardBody([
                         html.Div(
-                            "Use these filters to refine anomaly analysis for specific users, currencies, or time periods. "
+                            "Use these filters to refine anomaly analysis for specific users, countries, mismatch types, or time periods. "
                             "These filters apply to all anomaly visualizations on this page.",
                             className="text-muted mb-3"
                         ),
                         dbc.Row([
+
+                            # Country filter (replaces currency)
                             dbc.Col(
                                 dcc.Dropdown(
-                                    id='anomaly-currency-filter',
-                                    placeholder="Filter by Currency",
+                                    id='anomaly-country-filter',
+                                    placeholder="Filter by Country",
                                     multi=False,
                                     className="mb-2"
                                 ),
                                 width=3
                             ),
+
+                            # Mismatch Type filter (new multi-select)
+                            dbc.Col(
+                                dcc.Dropdown(
+                                    id='anomaly-mismatch-type-filter',
+                                    placeholder="Filter by Mismatch Type",
+                                    multi=True,
+                                    className="mb-2"
+                                ),
+                                width=3
+                            ),
+
+                            # User filter
                             dbc.Col(
                                 dcc.Dropdown(
                                     id='anomaly-user-filter',
@@ -46,6 +60,8 @@ def anomalies_layout():
                                 ),
                                 width=3
                             ),
+
+                            # Date range filter
                             dbc.Col(
                                 dcc.DatePickerRange(
                                     id='anomaly-date-filter',
@@ -54,7 +70,7 @@ def anomalies_layout():
                                     display_format="YYYY-MM-DD",
                                     className="mb-2"
                                 ),
-                                width=6
+                                width=3
                             ),
                         ])
                     ])

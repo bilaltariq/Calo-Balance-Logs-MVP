@@ -15,40 +15,40 @@ import csv
 import os
 import ast
 
-ERROR_LOG_FILE = "failed_parses.csv"
-NO_LOGS_FILE = "no_transactions.csv"
-ERROR_LOGS_WHILE_DB_INSERT = "db_insert_errors.csv"
+# ERROR_LOG_FILE = "failed_parses.csv"
+# NO_LOGS_FILE = "no_transactions.csv"
+# ERROR_LOGS_WHILE_DB_INSERT = "db_insert_errors.csv"
 
 
-def error_while_insert(filename: str, raw_snippet: str):
-    """Append failed JSON parse details to a CSV."""
-    file_exists = os.path.exists(ERROR_LOGS_WHILE_DB_INSERT)
-    with open(ERROR_LOGS_WHILE_DB_INSERT, mode="a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["filename", "raw_snippet"])
-        writer.writerow([filename, raw_snippet])
+# def error_while_insert(filename: str, raw_snippet: str):
+#     """Append failed JSON parse details to a CSV."""
+#     file_exists = os.path.exists(ERROR_LOGS_WHILE_DB_INSERT)
+#     with open(ERROR_LOGS_WHILE_DB_INSERT, mode="a", newline="", encoding="utf-8") as f:
+#         writer = csv.writer(f)
+#         if not file_exists:
+#             writer.writerow(["filename", "raw_snippet"])
+#         writer.writerow([filename, raw_snippet])
 
 
-def no_logs_records(filename: str):
-    """Append failed JSON parse details to a CSV."""
-    file_exists = os.path.exists(NO_LOGS_FILE)
-    with open(NO_LOGS_FILE, mode="a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["filename"])
-        writer.writerow([filename])  # Limit snippet length
+# def no_logs_records(filename: str):
+#     """Append failed JSON parse details to a CSV."""
+#     file_exists = os.path.exists(NO_LOGS_FILE)
+#     with open(NO_LOGS_FILE, mode="a", newline="", encoding="utf-8") as f:
+#         writer = csv.writer(f)
+#         if not file_exists:
+#             writer.writerow(["filename"])
+#         writer.writerow([filename])  # Limit snippet length
 
 
 
-def log_failed_parse(filename: str, raw_snippet: str):
-    """Append failed JSON parse details to a CSV."""
-    file_exists = os.path.exists(ERROR_LOG_FILE)
-    with open(ERROR_LOG_FILE, mode="a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["filename", "raw_snippet"])
-        writer.writerow([filename, raw_snippet[:500]])  # Limit snippet length
+# def log_failed_parse(filename: str, raw_snippet: str):
+#     """Append failed JSON parse details to a CSV."""
+#     file_exists = os.path.exists(ERROR_LOG_FILE)
+#     with open(ERROR_LOG_FILE, mode="a", newline="", encoding="utf-8") as f:
+#         writer = csv.writer(f)
+#         if not file_exists:
+#             writer.writerow(["filename", "raw_snippet"])
+#         writer.writerow([filename, raw_snippet[:500]])  # Limit snippet length
 
 def parse_log_string(log_string):
     """
@@ -151,15 +151,14 @@ def extract_info(logs):
     current_request_id = None
 
     for log in logs:
-        # --- Check for new RequestId in START line ---
         match = requestid_pattern.search(log)
+
         if match:
             current_request_id = match.group(1)
             if grouped_data[current_request_id]["RequestId"] is None:
                 grouped_data[current_request_id]["RequestId"] = current_request_id
             continue
 
-        # --- If no "RequestId:" found, check for inline ID (INFO/ERROR lines) ---
         if not current_request_id:
             inline_match = id_inline_pattern.search(log)
             if inline_match:
@@ -179,6 +178,7 @@ def extract_info(logs):
 
             try:
                 parsed_data = ast.literal_eval(json_part)
+                parsed_data['is_start_balance_sync'] = 1
             except Exception:
                 parsed_data = json_part
 
@@ -187,12 +187,13 @@ def extract_info(logs):
                 "data": parsed_data
             })
 
-        # --- Extract BalanceNotInSync ---
+
         elif "Subscription balance and payment balance are not in sync" in log:
             json_part = log.split("not in sync", 1)[-1].strip()
 
             try:
                 parsed_data = ast.literal_eval(json_part)
+                #parsed_data['is_balance_not_sync'] = 1
             except Exception:
                 parsed_data = json_part
 
@@ -289,10 +290,6 @@ def manual_parse(raw_str):
             if key and value:
                 result[key] = value
 
-        # print(result)
-        # print('\n')
-        # print('\n')
-        # print('\n')
         resultList.append(result)
     return resultList 
 
@@ -308,8 +305,9 @@ def parse_raw_table_to_parsed_logs():
     db = Database()
     db.connect()
 
-    # Ensure parsed_logs table exists with minimal schema
-    db.create_table("parsed_logs", {
+    tbl_name = "parsed_logs"
+    db.drop_table(table_name=tbl_name)
+    db.create_table(tbl_name, {
         "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
         "filename": "TEXT",
         "parsed_at": "TEXT"
@@ -330,18 +328,17 @@ def parse_raw_table_to_parsed_logs():
         # Skip unwanted files
         if filename in ['.DS_Store', '000000.gz'] or "Start syncing the balance" not in raw_text:
             continue
-        
-        # if filename == '2024-04-22-[$LATEST]39466a8cfcfd44b699f8c389d13ac3e9':
+
+        # if filename == '2024-01-06-[$LATEST]994fe0b156c840a89cd07f76ced745d6':
         # Parse a log file into list
         all_logs_in_list = (parse_log_string(raw_text))
-        #print(all_logs_in_list)
 
         #filter list as per important keywords
         filtered_logs_in_list = filter_logs_by_keywords(all_logs_in_list)
 
-        if not filtered_logs_in_list:
-            no_logs_records(filename, raw_text)
-            continue
+        # if not filtered_logs_in_list:
+        #     no_logs_records(filename, raw_text)
+        #     continue
 
         #Extract info from list
         data = extract_info(filtered_logs_in_list)
@@ -352,7 +349,7 @@ def parse_raw_table_to_parsed_logs():
 
         db.delete_rows("parsed_logs", "filename = ?", (filename,))
 
-
+        transaction_count = 0
         for transactions in all_transactions:
             transactions = dict(transactions)
             transactions["transaction_id"] = transactions.pop("id", None)
@@ -360,18 +357,19 @@ def parse_raw_table_to_parsed_logs():
             transactions["filename"] = filename
             transactions["parsed_at"] = datetime.now()
 
-            if not transactions:
-                log_failed_parse(filename)
-                continue
+            # if not transactions:
+            #     log_failed_parse(filename)
+            #     continue
 
             try:
                 transactions = {str(k): str(v) for k, v in transactions.items()}
-                db.insert_rows_dynamic("parsed_logs", [transactions])
+                db.insert_rows_dynamic(tbl_name, [transactions])
+                transaction_count+=1
 
             except Exception as db_err:
-                error_while_insert(filename, str(db_err))
+                # error_while_insert(filename, str(db_err))
                 continue
-            
+        print(filename + ": " + str(transaction_count))
     db.close_connection()
 
 

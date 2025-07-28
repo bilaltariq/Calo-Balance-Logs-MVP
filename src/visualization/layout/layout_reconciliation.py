@@ -11,7 +11,8 @@ def get_reconcile_filters(df):
     Fetch distinct filter values from the reconcile table.
     """
     # Distinct currencies
-    currencies = sorted(df['currency'].dropna().unique().tolist())
+    countries = sorted(df['country'].dropna().unique().tolist())
+    mismatch_type = sorted(df['mismatch_type'].dropna().unique().tolist())
 
     user_ids = sorted(df['user_id'].dropna().unique().tolist())
 
@@ -19,7 +20,7 @@ def get_reconcile_filters(df):
     min_date = df['timestamp'].min()
     max_date = df['timestamp'].max()
 
-    return currencies, user_ids, min_date, max_date
+    return countries, user_ids, min_date, max_date, mismatch_type
 
 def get_data():
     db = Database()
@@ -31,7 +32,7 @@ def get_data():
 def reconciliation_layout():
     reconcile_df = get_data()
 
-    currencies, user_ids, min_date, max_date = get_reconcile_filters(reconcile_df)
+    countries, user_ids, min_date, max_date, mismatch_type = get_reconcile_filters(reconcile_df)
 
     return dbc.Container([
 
@@ -42,8 +43,10 @@ def reconciliation_layout():
         dbc.Row([
             dbc.Col(
                 dbc.Card([
-                    dbc.CardHeader(html.H5("Filters", className="mb-0 fw-bold text-dark"),
-                                   style={"backgroundColor": "#f8f9fa"}),  # Bootstrap primary blue
+                    dbc.CardHeader(
+                        html.H5("Filters", className="mb-0 fw-bold text-dark"),
+                        style={"backgroundColor": "#f8f9fa"}
+                    ),
                     dbc.CardBody([
 
                         # User ID Dropdown
@@ -59,7 +62,7 @@ def reconciliation_layout():
                             ], width=12, className="mb-3")
                         ]),
 
-                        # Date Range
+                        # Date Range Picker
                         dbc.Row([
                             dbc.Col([
                                 html.Label("Date Range", className="fw-bold"),
@@ -73,17 +76,30 @@ def reconciliation_layout():
                             ], width=12, className="mb-3")
                         ]),
 
-                        # Currency Filter
+                        # Country Filter (Single Select)
                         dbc.Row([
                             dbc.Col([
-                                html.Label("Currency", className="fw-bold"),
+                                html.Label("Country", className="fw-bold"),
                                 dcc.Dropdown(
-                                    id='filter-currency',
-                                    options=[{'label': c, 'value': c} for c in currencies],
-                                    multi=True,
-                                    placeholder="Select Currency"
+                                    id='filter-country',
+                                    options=[{'label': c, 'value': c} for c in countries],
+                                    placeholder="Select Country",
+                                    multi=False  # single select
                                 )
-                            ], width=12)
+                            ], width=12, className="mb-3")
+                        ]),
+
+                        # Mismatch Type Filter (Multi Select)
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Mismatch Type", className="fw-bold"),
+                                dcc.Dropdown(
+                                    id='filter-mismatch-type',
+                                    options=[{'label': m, 'value': m} for m in mismatch_type],
+                                    placeholder="Select Mismatch Type",
+                                    multi=True
+                                )
+                            ], width=12, className="mb-3")
                         ]),
 
                         # Buttons Row
@@ -99,7 +115,9 @@ def reconciliation_layout():
                             ], width=6, className="mb-2"),
                         ]),
                     ])
-                ], className="shadow-sm mb-5", style={"border": "1px solid #ccc", "borderRadius": "8px"}), width=9  # 75% width
+                ], className="shadow-sm mb-5",
+                style={"border": "1px solid #ccc", "borderRadius": "8px"}),
+                width=9  # 75% width
             )
         ], justify="center"),
 
@@ -136,8 +154,10 @@ def reconciliation_layout():
                                 {'name': 'Timestamp', 'id': 'timestamp'},
                                 {'name': 'Filename', 'id': 'filename'},
                                 {'name': 'Transaction ID', 'id': 'transaction_id'},
+                                {'name': 'Transaction Type', 'id': 'type'},
                                 {'name': 'User ID', 'id': 'user_id'},
                                 {'name': 'Currency', 'id': 'currency'},
+                                {'name': 'Country', 'id': 'country'},  # New column
                                 {'name': 'Amount', 'id': 'amount'},
                                 {'name': 'VAT', 'id': 'vat'},
                                 {'name': 'Old Balance', 'id': 'old_balance'},
@@ -145,7 +165,8 @@ def reconciliation_layout():
                                 {'name': 'Payment Balance', 'id': 'payment_balance'},
                                 {'name': 'Subscription Balance', 'id': 'subscription_balance'},
                                 {'name': 'Source Type', 'id': 'source_type'},
-                                {'name': 'Event Type', 'id': 'event_type'}
+                                {'name': 'Event Type', 'id': 'event_type'},
+                                {'name': 'Mismatch Type', 'id': 'mismatch_type'}  # New column
                             ],
                             page_size=20,
                             data=reconcile_df.to_dict('records'),

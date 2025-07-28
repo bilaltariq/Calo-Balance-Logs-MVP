@@ -166,3 +166,26 @@ class Database:
         self.connection.execute(f"DROP TABLE {table_name}")
         self.connection.commit()
         print(f"Table '{table_name}' dropped successfully.")
+
+
+    def execute_query(self, query):
+        """
+        Execute a raw SQL query and return the result as a pandas DataFrame.
+
+        Example:
+            df = db.execute_query("SELECT * FROM parsed_logs WHERE type='DEBIT'")
+        """
+        import pandas as pd
+
+        if self.connection is None:
+            raise Exception("Database connection is not established. Call connect() first.")
+
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(query)
+            columns = [description[0] for description in cursor.description]
+            rows = cursor.fetchall()
+            return pd.DataFrame(rows, columns=columns)
+        except Exception as e:
+            print(f"Error executing query: {e}")
+            raise
