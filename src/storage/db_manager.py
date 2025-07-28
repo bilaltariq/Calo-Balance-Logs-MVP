@@ -123,14 +123,46 @@ class Database:
         #print(f"Inserted {len(rows)} rows into {table_name}.")
 
     def delete_rows(self, table_name, where_clause=None, params=None):
-            """
-            Delete rows from a table based on a WHERE clause.
-            Example:
-                db.delete_rows("parsed_logs", "filename = ?", ("somefile",))
-            """
-            query = f"DELETE FROM {table_name}"
-            if where_clause:
-                query += f" WHERE {where_clause}"
+        """
+        Delete rows from a table based on a WHERE clause.
+        Example:
+            db.delete_rows("parsed_logs", "filename = ?", ("somefile",))
+        """
 
-            self.connection.execute(query, params or ())
-            self.connection.commit()
+        # Check if table exists
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+        table_exists = cursor.fetchone()
+
+        if not table_exists:
+            print(f"Table '{table_name}' does not exist.")
+            return  # Or raise an Exception if you want strict handling
+
+        # Proceed with deletion
+        query = f"DELETE FROM {table_name}"
+        if where_clause:
+            query += f" WHERE {where_clause}"
+
+        self.connection.execute(query, params or ())
+        self.connection.commit()
+
+    def drop_table(self, table_name):
+        """
+        Drop a table if it exists.
+        Example:
+            db.drop_table("parsed_logs")
+        """
+
+        # Check if table exists
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+        table_exists = cursor.fetchone()
+
+        if not table_exists:
+            print(f"Table '{table_name}' does not exist.")
+            return  # Or raise an Exception if you want strict handling
+
+        # Drop table
+        self.connection.execute(f"DROP TABLE {table_name}")
+        self.connection.commit()
+        print(f"Table '{table_name}' dropped successfully.")

@@ -134,6 +134,7 @@ def reconciliation_layout():
                             id='reconciliation-table',
                             columns=[
                                 {'name': 'Timestamp', 'id': 'timestamp'},
+                                {'name': 'Filename', 'id': 'filename'},
                                 {'name': 'Transaction ID', 'id': 'transaction_id'},
                                 {'name': 'User ID', 'id': 'user_id'},
                                 {'name': 'Currency', 'id': 'currency'},
@@ -143,6 +144,7 @@ def reconciliation_layout():
                                 {'name': 'New Balance', 'id': 'new_balance'},
                                 {'name': 'Payment Balance', 'id': 'payment_balance'},
                                 {'name': 'Subscription Balance', 'id': 'subscription_balance'},
+                                {'name': 'Source Type', 'id': 'source_type'},
                                 {'name': 'Event Type', 'id': 'event_type'}
                             ],
                             page_size=20,

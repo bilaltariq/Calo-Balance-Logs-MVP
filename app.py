@@ -2,8 +2,11 @@ from dash import Dash, dcc, html, Input, Output
 import dash_bootstrap_components as dbc
 from src.visualization.layout.components.header import header
 from src.visualization.layout.layout_reconciliation import reconciliation_layout
+from src.visualization.layout.visuals import trends_layout
 from src.visualization.layout.components.footer import app_footer
 from src.visualization import backend
+from src.visualization.layout.user_anomalies import anomalies_layout
+
 
 # Initialize Dash with Bootstrap
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
@@ -14,7 +17,7 @@ app.layout = html.Div([
     header,
 
     dcc.Tabs(id='tabs', value='tab-reconciliation', children=[
-        dcc.Tab(label='Reconciliation', value='tab-reconciliation'),
+        dcc.Tab(label='Reconciliation Transactions', value='tab-reconciliation'),
         dcc.Tab(label='Trends', value='tab-trends'),
         dcc.Tab(label='Anomalies', value='tab-anomalies'),
     ]),
@@ -33,9 +36,9 @@ def render_tab_content(tab):
     if tab == 'tab-reconciliation':
         return reconciliation_layout()
     elif tab == 'tab-trends':
-        return html.Div("Trends View (to be built)")
+        return trends_layout()
     elif tab == 'tab-anomalies':
-        return html.Div("Anomalies View (to be built)")
+        return anomalies_layout()
 
 
 backend.register_callbacks(app)

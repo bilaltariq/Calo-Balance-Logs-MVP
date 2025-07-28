@@ -18,19 +18,20 @@ def populate_reconcile_events():
                 "newbalance": "new_balance",
                 "paymentbalance": "payment_balance",
                 "subscriptionbalance": "subscription_balance",
+                "source": "source_type",
                 "action": "event_type",
-                "time": "timestamp"
+                "time": "timestamp",
+                "filename": "filename"
             })[
                 ["transaction_id", "user_id", "currency", "amount", "vat",
                 "old_balance", "new_balance", "payment_balance",
-                "subscription_balance", "event_type", "timestamp"]
+                "subscription_balance", "source_type", "event_type", "timestamp", "filename"]
             ]
     )
 
-
-    print(reconcile_df.columns)
+    db.drop_table(table_name='reconcile_events')
     db.insert_dataframe(table_name='reconcile_events', dataframe=reconcile_df)
-    db.close_connection()
+    db.close_connection()       
 
 
 if __name__ == "__main__":
