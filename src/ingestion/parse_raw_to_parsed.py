@@ -1,19 +1,11 @@
 import os
 import re
-import json
-import sqlite3
 import sys
-import pandas as pd
+from datetime import datetime
+import ast
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from src.storage.db_manager import Database
-from datetime import datetime
-
-
-import json
-import re
-import csv
-import os
-import ast
 
 # ERROR_LOG_FILE = "failed_parses.csv"
 # NO_LOGS_FILE = "no_transactions.csv"
@@ -298,79 +290,122 @@ def manual_parse(raw_str):
 def parse_raw_table_to_parsed_logs():
     """
     Parse raw logs from 'raw_data' table into structured 'parsed_logs' table.
-    Adds new columns dynamically if JSON contains unseen keys.
-    One row = one transaction (merged JSON object).
-    If file already parsed, old rows are deleted and replaced with new ones.
+
+    - Creates table if not exists (keeps history)
+    - Deletes existing rows per file before re-parsing
+    - Dynamically adds new columns as needed
+    - Batch insert for performance
     """
-    db = Database()
-    db.connect()
+    with Database() as db:
+        # Ensure parsed_logs table exists
+        db.ensure_table("parsed_logs", {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "filename": "TEXT",
+            "parsed_at": "TEXT"
+        })
 
-    tbl_name = "parsed_logs"
-    db.drop_table(table_name=tbl_name)
-    db.create_table(tbl_name, {
-        "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-        "filename": "TEXT",
-        "parsed_at": "TEXT"
-    })
+        # Load raw_data
+        raw_df = db.select_table("raw_data")
+        if raw_df.empty:
+            print("No raw logs found in raw_data table.")
+            return
 
-    # Load raw_data table
-    raw_df = db.select_table("raw_data")
-    if raw_df.empty:
-        print("No raw logs found in raw_data table.")
-        db.close_connection()
-        return
+        for _, row in raw_df.iterrows():
+            raw_text = row["raw_string"]
+            filename = row.get("filename")
 
-    for _, row in raw_df.iterrows():
-        raw_text = row["raw_string"]
-        filename = row.get("filename", None)
-
-
-        # Skip unwanted files
-        if filename in ['.DS_Store', '000000.gz'] or "Start syncing the balance" not in raw_text:
-            continue
-
-        # if filename == '2024-01-06-[$LATEST]994fe0b156c840a89cd07f76ced745d6':
-        # Parse a log file into list
-        all_logs_in_list = (parse_log_string(raw_text))
-
-        #filter list as per important keywords
-        filtered_logs_in_list = filter_logs_by_keywords(all_logs_in_list)
-
-        # if not filtered_logs_in_list:
-        #     no_logs_records(filename, raw_text)
-        #     continue
-
-        #Extract info from list
-        data = extract_info(filtered_logs_in_list)
-        
-        #Convert info into a json string => Manual Parsing
-
-        all_transactions = manual_parse(data)
-
-        db.delete_rows("parsed_logs", "filename = ?", (filename,))
-
-        transaction_count = 0
-        for transactions in all_transactions:
-            transactions = dict(transactions)
-            transactions["transaction_id"] = transactions.pop("id", None)
-
-            transactions["filename"] = filename
-            transactions["parsed_at"] = datetime.now()
-
-            # if not transactions:
-            #     log_failed_parse(filename)
-            #     continue
-
-            try:
-                transactions = {str(k): str(v) for k, v in transactions.items()}
-                db.insert_rows_dynamic(tbl_name, [transactions])
-                transaction_count+=1
-
-            except Exception as db_err:
-                # error_while_insert(filename, str(db_err))
+            # Skip unwanted files
+            if filename in ['.DS_Store', '000000.gz'] or "Start syncing the balance" not in raw_text:
                 continue
-        print(filename + ": " + str(transaction_count))
-    db.close_connection()
+
+            # Parse raw string -> list of transaction dicts
+            all_logs_in_list = parse_log_string(raw_text)
+            filtered_logs_in_list = filter_logs_by_keywords(all_logs_in_list)
+            data = extract_info(filtered_logs_in_list)
+            all_transactions = manual_parse(data)
+
+            # Remove previous parsed rows for this file
+            db.delete_rows("parsed_logs", "filename = ?", (filename,))
+
+            # Prepare batch insert
+            batch = []
+            for tx in all_transactions:
+                tx = dict(tx)
+                tx["transaction_id"] = tx.pop("id", None)
+                tx["filename"] = filename
+                tx["parsed_at"] = datetime.utcnow().isoformat()
+
+                # Convert all keys/values to string for SQLite
+                tx = {str(k): str(v) for k, v in tx.items()}
+                batch.append(tx)
+
+            if batch:
+                db.insert_rows_dynamic("parsed_logs", batch)
+
+            print(f"{filename}: Inserted {len(batch)} transactions")
+
+
+# def parse_raw_table_to_parsed_logs():
+#     """
+#     Parse raw logs from 'raw_data' table into structured 'parsed_logs' table.
+#     Adds new columns dynamically if JSON contains unseen keys.
+#     One row = one transaction (merged JSON object).
+#     If file already parsed, old rows are deleted and replaced with new ones.
+#     """
+#     db = Database()
+#     db.connect()
+
+#     tbl_name = "parsed_logs"
+#     db.drop_table(table_name=tbl_name)
+#     db.create_table(tbl_name, {
+#         "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+#         "filename": "TEXT",
+#         "parsed_at": "TEXT"
+#     })
+
+#     # Load raw_data table
+#     raw_df = db.select_table("raw_data")
+#     if raw_df.empty:
+#         print("No raw logs found in raw_data table.")
+#         db.close_connection()
+#         return
+
+#     for _, row in raw_df.iterrows():
+#         raw_text = row["raw_string"]
+#         filename = row.get("filename", None)
+
+
+#         # Skip unwanted files
+#         if filename in ['.DS_Store', '000000.gz'] or "Start syncing the balance" not in raw_text:
+#             continue
+
+#         all_logs_in_list = (parse_log_string(raw_text))
+
+#         filtered_logs_in_list = filter_logs_by_keywords(all_logs_in_list)
+
+#         data = extract_info(filtered_logs_in_list)
+        
+#         all_transactions = manual_parse(data)
+
+#         db.delete_rows("parsed_logs", "filename = ?", (filename,))
+
+#         transaction_count = 0
+#         for transactions in all_transactions:
+#             transactions = dict(transactions)
+#             transactions["transaction_id"] = transactions.pop("id", None)
+
+#             transactions["filename"] = filename
+#             transactions["parsed_at"] = datetime.now()
+
+#             try:
+#                 transactions = {str(k): str(v) for k, v in transactions.items()}
+#                 db.insert_rows_dynamic(tbl_name, [transactions])
+#                 transaction_count+=1
+
+#             except Exception as db_err:
+#                 continue
+#         print(filename + ": " + str(transaction_count))
+#     db.close_connection()
 
 
 if __name__ == "__main__":

@@ -1,19 +1,17 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
-# Install dependencies
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all app files including entrypoint
+# Copy app code and entrypoint script
 COPY . .
 
-# Ensure entrypoint.sh is executable
 RUN chmod +x entrypoint.sh
 
-# Expose port for Dash
 EXPOSE 8050
 
-# Set entrypoint to run initialization + app
 ENTRYPOINT ["./entrypoint.sh"]

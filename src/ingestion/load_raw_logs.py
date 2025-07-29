@@ -1,79 +1,70 @@
 import os
+import sys
 import gzip
-import sqlite3
 from datetime import datetime
 
-LOGS_DIR = "Logs/balance-sync-logs/balance-sync-logs/a3fb6cdb-607b-469f-8f8a-ec4792e827cb"
-DB_PATH = "data/transformed/calo_balances.db"
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+from src.storage.db_manager import Database
 
-def create_table_if_not_exists():
-    """
-    Creates raw_data table if it does not exist.
-    Stores folder_name (unique file ref), raw string, and load timestamp.
-    """
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS raw_data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename TEXT,
-                raw_string TEXT,
-                load_timestamp TEXT
-            )
-        """)
-        conn.commit()
+# Environment-based configuration
+LOGS_DIR = os.getenv("LOGS_DIR","Logs/balance-sync-logs/balance-sync-logs/a3fb6cdb-607b-469f-8f8a-ec4792e827cb")
+DB_PATH = os.getenv("DB_PATH", "data/transformed/calo_balances.db")
 
-# ---- CHECK IF FILE ALREADY LOADED ----
-def file_already_loaded(filename):
-    """
-    Checks if a log (folder name) has already been ingested.
-    """
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1 FROM raw_data WHERE filename = ?", (filename,))
-        return cursor.fetchone() is not None
-
-# ---- READ .GZ FILE ----
 def read_gz_file(file_path):
     """
-    Safely read .gz file and decode as UTF-8, ignoring bad bytes.
+    Safely read .gz file and decode as UTF-8.
     """
     with gzip.open(file_path, 'rt', encoding='utf-8', errors='replace') as f:
         return f.read()
 
-# ---- INGESTION LOGIC ----
+
 def load_files():
     """
-    Iterate through nested folders inside LOGS_DIR and load 000000.gz content into DB.
+    Bulk ingestion using Database class.
+    - Creates table if not exists
+    - Skips already loaded files
+    - Inserts in batch
     """
-    create_table_if_not_exists()
+    # Use Database context manager (auto connect/close)
+    with Database(DB_PATH) as db:
+        # Ensure table exists
+        db.ensure_table("raw_data", {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "filename": "TEXT UNIQUE",
+            "raw_string": "TEXT",
+            "load_timestamp": "TEXT"
+        })
 
-    for root, dirs, files in os.walk(LOGS_DIR):
-        for file in files:
-            if file.endswith(".gz"):
-                # Use parent folder name as unique filename reference
-                folder_name = os.path.basename(root)
-                file_path = os.path.join(root, file)
+        # Get already loaded files
+        existing_df = db.execute_query("SELECT filename FROM raw_data")
+        already_loaded = set(existing_df['filename']) if not existing_df.empty else set()
 
-                # Skip if already loaded
-                if file_already_loaded(folder_name):
-                    print(f"Skipping {folder_name} (already loaded)")
+        inserts = []
+
+        # Walk through logs and prepare batch
+        for root, dirs, files in os.walk(LOGS_DIR):
+            for file in files:
+                if not file.endswith(".gz"):
                     continue
 
-                # Read file content
+                folder_name = os.path.basename(root)
+                if folder_name in already_loaded:
+                    continue
+
+                file_path = os.path.join(root, file)
                 raw_content = read_gz_file(file_path)
+                inserts.append({
+                    "filename": folder_name,
+                    "raw_string": raw_content,
+                    "load_timestamp": datetime.utcnow().isoformat()
+                })
 
-                # Insert into DB
-                with sqlite3.connect(DB_PATH) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT INTO raw_data (filename, raw_string, load_timestamp)
-                        VALUES (?, ?, ?)
-                    """, (folder_name, raw_content, datetime.utcnow().isoformat()))
-                    conn.commit()
+        # Insert batch
+        if inserts:
+            db.insert_rows_dynamic("raw_data", inserts)
 
-                print(f"Loaded: {folder_name}")
+        print(f"Ingestion complete. Inserted {len(inserts)} new files.")
+
 
 if __name__ == "__main__":
     load_files()
-    print("Ingestion complete.")

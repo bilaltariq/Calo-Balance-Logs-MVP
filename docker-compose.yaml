@@ -1,0 +1,12 @@
+version: '3'
+services:
+  calo-dash-app:
+    build: .
+    ports:
+      - "8050:8050"
+    volumes:
+      - ./Logs:/app/Logs     # Mount entire Logs folder
+      - ./data:/app/data     # Mount SQLite DB folder
+    environment:
+      DB_PATH: /app/data/transformed/calo.db
+      LOGS_DIR: /app/Logs/balance-sync-logs/balance-sync-logs/a3fb6cdb-607b-469f-8f8a-ec4792e827cb
