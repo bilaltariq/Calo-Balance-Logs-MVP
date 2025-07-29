@@ -14,42 +14,54 @@ Build a pipeline to process subscription balance logs for:
 
 ### **Layers**
 
-1. **Ingestion Layer**
-   - Parse AWS Lambda log files (CloudWatch exports).
-   - Extract structured fields (transaction, skipped, discrepancy events).
-   - Handle incremental ingestion for new logs.
-
-2. **Transformation Layer**
-   - Normalize to relational schema (`balance_events`).
-   - Derived tables:
-     - `user_balances` (latest balance per user).
-     - `discrepancy_report` (payment vs subscription mismatches).
-     - `anomalies` (unusual transaction patterns).
-
-3. **Storage Layer**
+1. **Storage Layer**
    - Store structured data in **SQLite**.
+   - It is lite and works fine with Dash applications.
+
+
+2. **Ingestion Layer**
+   - Parse AWS Lambda log files: Done via first loading all files in database as raw string. 
+      - This process is implemented in src/ingestion/load_raw_logs.py
+
+   - Once the raw data is available; I have parse the file one by one with the following logic.
+      - We only need three keywords from each logfile: RequestId, "Start syncing the balance" and "Subscription balance and payment balance are not in sync".
+      - JSON objects are attached to both "Start syncing the balance" and "Subscription balance and payment balance are not in sync"
+      - But since these are strings and have alot of noise, I have create a custom method to re-create JSON by reading json char by char. 
+      - Once a proper JSON is create, we insert the data in table.
+      - All this logic is implemented in src/ingestion/parse_raw_to_parsed.py
+
+3. **Transformation Layer**
+   - In order to find Disprecencies in records I have created two mis match types. We have following columns in our ingested tables. Logic for mismatch column is
+   created based on following columns and my assumed definations.
+    1. Old Balance: User's old balance in app.
+    2. Amount: The Transaction amout.
+    3. VAT: Tax
+    4. New Balance: The balance after transaction finished.
+    5. Payment Balance: User new balance after transaction.
+    6. Subscription Balance: Balance as per subscription of user (monthly or yearly).
+
+    Two mismatch types.
+    1. Old Balance + Amount - VAT = New Balance
+    If this is not the case then we label this trasnaction as CALCULATION error.
+    2. Payment Balance == Subscription Balance
+    If this is not equal then we label this as BALANCE SYNC error. 
+
 
 4. **Visualization Layer (Dash)**
    - Tabs:
-     1. **Transaction Trends**
-     2. **Overdraft Detection**
-     3. **Reconciliation**
+     1. **Project Details**
+     2. **Reconciliation Transactions**
+     3. **Trends**
      4. **Anomaly Detection**
-     5. **Skipped Events / System Health**
-
-5. **Automation Layer (Optional)**
-   - Scheduled ingestion (e.g., cron job or Airflow).
-   - Email/Slack alerts for overdrafts or discrepancies.
-
 ---
 
-## 3. Detailed Steps (Checklist)
+5. Detailed Steps (Checklist which I aim at the start of project)
 
 ### **Phase 1: Setup & Planning**
-- [X] Create project repository and folder structure.
-- [X] Define `.env` for DB connections (Postgres/SQLite).
-- [X] Collect sample log files from CloudWatch exports.
-- [X] Define requirements.txt (Dash, Pandas, SQLAlchemy, etc.).
+- [X] Create project repository and folder structure on GIT.
+- [X] Define `.env` for DB connections (SQLite).
+- [X] Understand log files provided.
+- [X] Define requirements.txt that will be used for app.
 
 ---
 
@@ -57,19 +69,16 @@ Build a pipeline to process subscription balance logs for:
 - [X] Write parser for raw logs (regex or JSON parsing).
 - [X] Extract fields:
   - `transaction_id`, `user_id`, `currency`, `old_balance`, `new_balance`, `amount`, `vat`
-  - `event_type` (processed, skipped, discrepancy)
-  - `timestamp`, `message_id`, `RequestId`
+  - `event_type` `timestamp`, `message_id`, `RequestId`
 - [X] Handle edge cases:
-  - Skipped events (no userId).
+  - Skipped events (no sync keyword in Logs?).
   - Discrepancies (subscription vs payment).
-  - Duplicate events.
 - [X] Save parsed data into `parsed_logs` table.
 
 ---
 
 ### **Phase 3: Data Transformation**
-- [ ] Create derived field `net_change = new_balance - old_balance`.
-- [ ] Flag overdrafts (`new_balance < 0`).
+- [ ] Understand data and try to finalize logic for mismatch transaction.
 - [ ] Build `reconcile_events` table (latest balance per user).
 - [ ] Build `discrepancy_report` table (subscription vs payment mismatch).
 - [ ] Build `anomalies` table:
@@ -77,15 +86,11 @@ Build a pipeline to process subscription balance logs for:
   - Frequent discrepancies for same user.
   - VAT mismatches.
 
----
+--- 
 
 ### **Phase 4: Database Schema**
-- [ ] Design relational schema for:
-  - `balance_events` (raw + parsed events).
-  - `user_balances` (aggregated).
-  - `discrepancy_report` (for reconciliation tab).
-  - `anomalies` (for anomaly tab).
-- [ ] Implement schema using SQLAlchemy / raw SQL DDL.
+- [X] Which datbase to use
+- [X] Tables to create for ingestion and transformation.
 
 ---
 
@@ -100,7 +105,7 @@ Build a pipeline to process subscription balance logs for:
 - [X] **Tab 3: Reconciliation**
   - Table of mismatched balances.
   - Export to CSV button.
-- [ ] **Tab 4: Anomaly Detection**
+- [X] **Tab 4: Anomaly Detection**
   - Highlight large changes or suspicious patterns.
 - [ ] **Tab 5: Skipped Events/System Health**
   - Count of skipped events.
@@ -108,27 +113,22 @@ Build a pipeline to process subscription balance logs for:
 
 ---
 
-### **Phase 6: Automation & Reporting**
-- [ ] Schedule pipeline (Airflow).
-- [ ] Generate daily overdraft report (CSV).
-- [ ] Generate weekly reconciliation summary.
-
----
-
-### **Phase 7: Testing & Validation**
-- [ ] Validate parser on multiple log samples.
-- [ ] Cross-check derived balances vs raw logs.
-- [ ] Test overdraft detection with edge cases.
-- [ ] Ensure dashboard filters & charts are responsive.
-
----
+### **Phase 6: Testing & Validation**
+- [X] Validate parser on multiple log samples.
+- [X] Cross-check derived balances vs raw logs.
+- [X] Ensure dashboard filters & charts are responsive.
 
 ### **Phase 8: Deployment**
-- [ ] Containerize with Docker.
+- [X] Containerize app with Docker.
+
+
+### **Future Work**
+- Schedule pipeline (Airflow).
+- Generate daily overdraft report (CSV).
+- Generate weekly reconciliation summary.
 
 ---
 
 ## 5. Deliverables
 - Python ingestion + transformation scripts.
-- Normalized database (SQLite/Postgres).
-- Dash multi-tab web app.
+- Dash web app.

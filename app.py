@@ -6,7 +6,7 @@ from src.visualization.layout.visuals import trends_layout
 from src.visualization.layout.components.footer import app_footer
 from src.visualization import backend
 from src.visualization.layout.user_anomalies import anomalies_layout
-
+from src.visualization.layout.readme import readme_layout
 
 # Initialize Dash with Bootstrap
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
@@ -16,7 +16,8 @@ app.title = "Calo Balance Dashboard"
 app.layout = html.Div([
     header,
 
-    dcc.Tabs(id='tabs', value='tab-reconciliation', children=[
+    dcc.Tabs(id='tabs', value='tab-readme', children=[
+        dcc.Tab(label='Project Details', value='tab-readme'),
         dcc.Tab(label='Reconciliation Transactions', value='tab-reconciliation'),
         dcc.Tab(label='Trends', value='tab-trends'),
         dcc.Tab(label='Anomalies', value='tab-anomalies'),
@@ -33,6 +34,8 @@ app.layout = html.Div([
     Input('tabs', 'value')
 )
 def render_tab_content(tab):
+    if tab == 'tab-readme':
+        return readme_layout()
     if tab == 'tab-reconciliation':
         return reconciliation_layout()
     elif tab == 'tab-trends':

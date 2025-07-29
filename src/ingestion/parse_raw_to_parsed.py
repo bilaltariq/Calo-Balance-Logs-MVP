@@ -3,44 +3,15 @@ import re
 import sys
 from datetime import datetime
 import ast
+import re
+import ast
+from datetime import datetime
+from collections import defaultdict
+
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from src.storage.db_manager import Database
 
-# ERROR_LOG_FILE = "failed_parses.csv"
-# NO_LOGS_FILE = "no_transactions.csv"
-# ERROR_LOGS_WHILE_DB_INSERT = "db_insert_errors.csv"
-
-
-# def error_while_insert(filename: str, raw_snippet: str):
-#     """Append failed JSON parse details to a CSV."""
-#     file_exists = os.path.exists(ERROR_LOGS_WHILE_DB_INSERT)
-#     with open(ERROR_LOGS_WHILE_DB_INSERT, mode="a", newline="", encoding="utf-8") as f:
-#         writer = csv.writer(f)
-#         if not file_exists:
-#             writer.writerow(["filename", "raw_snippet"])
-#         writer.writerow([filename, raw_snippet])
-
-
-# def no_logs_records(filename: str):
-#     """Append failed JSON parse details to a CSV."""
-#     file_exists = os.path.exists(NO_LOGS_FILE)
-#     with open(NO_LOGS_FILE, mode="a", newline="", encoding="utf-8") as f:
-#         writer = csv.writer(f)
-#         if not file_exists:
-#             writer.writerow(["filename"])
-#         writer.writerow([filename])  # Limit snippet length
-
-
-
-# def log_failed_parse(filename: str, raw_snippet: str):
-#     """Append failed JSON parse details to a CSV."""
-#     file_exists = os.path.exists(ERROR_LOG_FILE)
-#     with open(ERROR_LOG_FILE, mode="a", newline="", encoding="utf-8") as f:
-#         writer = csv.writer(f)
-#         if not file_exists:
-#             writer.writerow(["filename", "raw_snippet"])
-#         writer.writerow([filename, raw_snippet[:500]])  # Limit snippet length
 
 def parse_log_string(log_string):
     """
@@ -124,11 +95,6 @@ def extract_info_dep(logs):
             except Exception:
                 data["BalanceNotInSync"] = json_part  # fallback as raw text
     return data
-
-import re
-import ast
-from datetime import datetime
-from collections import defaultdict
 
 def extract_info(logs):
     requestid_pattern = re.compile(r"RequestId:\s*([a-f0-9-]+)")
