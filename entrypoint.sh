@@ -3,7 +3,9 @@ set -e  # Exit on error
 
 echo "Running database initialization scripts..."
 
+echo "initialization of Database..."
 python src/storage/init_db.py #initialize db
+echo "Loading log files to Database..."
 python src/ingestion/load_raw_logs.py #load raw logs to sqlite3 db
 python src/ingestion/parse_raw_to_parsed.py  # clean and transformation
 python src/transformation/reconcile_events.py  # transformed table for dashboard
