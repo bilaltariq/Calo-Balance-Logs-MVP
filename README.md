@@ -81,7 +81,7 @@ Develop a pipeline to process subscription balance logs, enabling:
 ---
 
 ### Phase 4: Database Schema
-- [X] Decide database technology (SQLite)  
+- [X] Decide database (SQLite)  
 - [X] Design ingestion and transformation tables
 
 ---
