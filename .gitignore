@@ -2,8 +2,8 @@
 *.csv
 
 # Ignore Logs folder (raw data)
-Logs/
-Logs/*
+# Logs/
+# Logs/*
 
 # Ignore Python cache files
 __pycache__/
