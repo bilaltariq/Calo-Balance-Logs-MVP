@@ -50,7 +50,7 @@ def trends_layout():
                     dbc.CardBody([
                         html.Div(
                             "Use these filters to refine all visualizations on this dashboard. "
-                            "Filters apply to country, mismatch type, specific users, and date range.",
+                            "Filters apply to country, mismatch type and date range.",
                             className="text-muted mb-3"
                         ),
                         dbc.Row([
@@ -61,7 +61,8 @@ def trends_layout():
                                     placeholder="Filter by Country",
                                     multi=False,
                                     options=[{'label': c, 'value': c} for c in countries],
-                                    className="mb-2"
+                                    className="mb-2",
+                                    value='Bahrain'
                                 ),
                                 width=3
                             ),
@@ -71,22 +72,23 @@ def trends_layout():
                                     id='mismatch-type-filter',
                                     placeholder="Filter by Mismatch Type",
                                     multi=True,
+                                    value=['CALCULATION ISSUE'],
                                     options=[{'label': m, 'value': m} for m in mismatch_types],
                                     className="mb-2"
                                 ),
                                 width=3
                             ),
-                            # User ID filter
-                            dbc.Col(
-                                dcc.Dropdown(
-                                    id='global-user-filter',
-                                    placeholder="Filter by User ID",
-                                    multi=True,
-                                    options=[{'label': u, 'value': u} for u in user_ids],
-                                    className="mb-2"
-                                ),
-                                width=3
-                            ),
+                            # # User ID filter
+                            # dbc.Col(
+                            #     dcc.Dropdown(
+                            #         id='global-user-filter',
+                            #         placeholder="Filter by User ID",
+                            #         multi=True,
+                            #         options=[{'label': u, 'value': u} for u in user_ids],
+                            #         className="mb-2"
+                            #     ),
+                            #     width=3
+                            # ),
                             # Date filter
                             dbc.Col(
                                 dcc.DatePickerRange(
@@ -109,107 +111,24 @@ def trends_layout():
             )
         ]),
 
-        # Mismatch Trend
-        dbc.Row([
-            dbc.Col(
-                dbc.Card([
-                    dbc.CardHeader("Mismatch Trend Over Time"),
-                    dbc.CardBody([
-                        html.Div("This chart shows daily mismatches in balances. It helps identify spikes on certain dates, indicating possible issues in reconciliation or system updates.", className="text-muted mb-2"),
-                        dcc.Graph(id='mismatch-trend')
-                    ])
-                ], className="mb-4 shadow-sm rounded-3"),
-                width=12
-            )
-        ]),
-
-        # Transaction Volume
-        dbc.Row([
-            dbc.Col(
-                dbc.Card([
-                    dbc.CardHeader("Transaction Volume vs Mismatches"),
-                    dbc.CardBody([
-                        html.Div("Compares total transactions against mismatched ones to help measure error rates and volume trends across days.", className="text-muted mb-2"),
-                        dcc.Graph(id='transaction-volume')
-                    ])
-                ], className="mb-4 shadow-sm rounded-3"),
-                width=12
-            )
-        ]),
-
-        # Mismatch Distribution
-        dbc.Row([
-            dbc.Col(
-                dbc.Card([
-                    dbc.CardHeader("Mismatch Amount Distribution"),
-                    dbc.CardBody([
-                        html.Div("Displays how mismatch amounts are spread out. Helps spot whether errors are minor rounding differences or large anomalies.", className="text-muted mb-2"),
-                        dcc.Graph(id='mismatch-distribution')
-                    ])
-                ], className="mb-4 shadow-sm rounded-3"),
-                width=12
-            )
-        ]),
-
-        # Source Type Contribution
-        dbc.Row([
-            dbc.Col(
-                dbc.Card([
-                    dbc.CardHeader("Mismatch by Source Type"),
-                    dbc.CardBody([
-                        html.Div("Shows which transaction sources (e.g., manual deduction, payment) are causing the most mismatches, helping prioritize investigation.", className="text-muted mb-2"),
-                        dcc.Graph(id='source-type-pie')
-                    ])
-                ], className="mb-4 shadow-sm rounded-3"),
-                width=12
-            )
-        ]),
-
-        # Balance Change per User
-        dbc.Row([
-            dbc.Col(
-                dbc.Card([
-                    dbc.CardHeader("Balance Change per User"),
-                    dbc.CardBody([
-                        html.Div(
-                            "Compares old vs new balances per user to detect unusual spikes or drops in user accounts that may indicate reconciliation issues.",
-                            className="text-muted mb-2"
-                        ),
-                        # User ID dropdown filter
-                        dcc.Dropdown(
-                            id='user-filter',
-                            placeholder="Filter by User ID",
-                            multi=True,
-                            className="mb-3"
-                        ),
-                        dcc.Graph(id='balance-change')
-                    ])
-                ], className="mb-4 shadow-sm rounded-3"),
-                width=12
-            )
-        ]),
-
-        # Currency-wise Mismatches
-        dbc.Row([
-            dbc.Col(
-                dbc.Card([
-                    dbc.CardHeader("Mismatches per Currency"),
-                    dbc.CardBody([
-                        html.Div("Shows mismatches grouped by currency, useful if multiple currencies are handled in the accounting system.", className="text-muted mb-2"),
-                        dcc.Graph(id='currency-wise-bar')
-                    ])
-                ], className="mb-4 shadow-sm rounded-3"),
-                width=12
-            )
-        ]),
-
         # Running Total
         dbc.Row([
             dbc.Col(
                 dbc.Card([
                     dbc.CardHeader("Running Total: Actual vs Expected"),
                     dbc.CardBody([
-                        html.Div("Visualizes the cumulative balances (actual vs expected) over time. Any growing gap indicates systemic calculation errors.", className="text-muted mb-2"),
+                        html.Div(
+                            """
+                            This chart plots two running totals over time: \n
+                            1. Cumulative Actual Balance - the sum of all 'new_balance' values in chronological order. \n
+                            2. Cumulative Expected Balance** - the sum of all 'expected_new_balance' values in chronological order. \n
+
+                            By comparing these two cumulative lines, you can spot trends in discrepancies: \n
+                            - If the lines stay close together, calculations are consistent. \n
+                            - If the gap between them widens, it signals systemic calculation issues \n 
+                            """,
+                            className="text-muted mb-2"
+                        ),
                         dcc.Graph(id='running-total-line')
                     ])
                 ], className="mb-4 shadow-sm rounded-3"),

@@ -76,7 +76,6 @@ def reconciliation_layout():
                             ], width=12, className="mb-3")
                         ]),
 
-                        # Country Filter (Single Select)
                         dbc.Row([
                             dbc.Col([
                                 html.Label("Country", className="fw-bold"),
@@ -84,12 +83,16 @@ def reconciliation_layout():
                                     id='filter-country',
                                     options=[{'label': c, 'value': c} for c in countries],
                                     placeholder="Select Country",
-                                    multi=False  # single select
+                                    multi=True,  # allow multiple selections
+                                    value=['Bahrain']  # default selection
+                                ),
+                                html.Div(
+                                    id='country-warning',
+                                    className="text-warning mt-1 fw-bold"
                                 )
                             ], width=12, className="mb-3")
                         ]),
 
-                        # Mismatch Type Filter (Multi Select)
                         dbc.Row([
                             dbc.Col([
                                 html.Label("Mismatch Type", className="fw-bold"),
@@ -97,8 +100,39 @@ def reconciliation_layout():
                                     id='filter-mismatch-type',
                                     options=[{'label': m, 'value': m} for m in mismatch_type],
                                     placeholder="Select Mismatch Type",
+                                    value=["CALCULATION ISSUE"],
                                     multi=True
+                                ),
+                                html.Div(
+                                    [
+                                        html.P("• CALCULATION ISSUE: New balance doesn’t match expected balance after applying transaction and VAT.", className="text-muted mb-1"),
+                                        html.P("• BALANCE SYNC ISSUE: Payment and subscription balances are not aligned.", className="text-muted mb-1"),
+                                        html.P("• CALCULATION + BALANCE SYNC ISSUE: Both calculation mismatch and balance sync mismatch are present.", className="text-muted mb-1"),
+                                    ],
+                                    className="mt-2"
                                 )
+                            ], width=12, className="mb-3")
+                        ]),
+
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Overdraft", className="fw-bold"),
+                                dcc.Dropdown(
+                                    id='filter-overdraft',
+                                    options=[
+                                        {'label': 'Overdraft', 'value': 1},
+                                        {'label': 'No Overdraft', 'value': 0}
+                                    ],
+                                    placeholder="Select Overdraft Status",
+                                    multi=True
+                                ),
+                                html.Div(
+                                    [
+                                        html.P("OverDraft Values: New Balance < 0", className="text-muted mb-1")
+                                    ],
+                                    className="mt-2"
+                                )
+
                             ], width=12, className="mb-3")
                         ]),
 
@@ -150,26 +184,28 @@ def reconciliation_layout():
                         # Data Table
                         dash_table.DataTable(
                             id='reconciliation-table',
-                            columns=[
+                            columns=
+                            [
                                 {'name': 'Timestamp', 'id': 'timestamp'},
-                                {'name': 'Filename', 'id': 'filename'},
+                                {'name': 'Mismatch Type', 'id': 'mismatch_type'},
                                 {'name': 'Transaction ID', 'id': 'transaction_id'},
                                 {'name': 'Transaction Type', 'id': 'type'},
                                 {'name': 'User ID', 'id': 'user_id'},
-                                {'name': 'Currency', 'id': 'currency'},
-                                {'name': 'Country', 'id': 'country'},  # New column
+                                {'name': 'Country', 'id': 'country'},
+                                {'name': 'Old Balance', 'id': 'old_balance'},
                                 {'name': 'Amount', 'id': 'amount'},
                                 {'name': 'VAT', 'id': 'vat'},
-                                {'name': 'Old Balance', 'id': 'old_balance'},
                                 {'name': 'New Balance', 'id': 'new_balance'},
-                                {'name': 'Payment Balance', 'id': 'payment_balance'},
-                                {'name': 'Subscription Balance', 'id': 'subscription_balance'},
-                                {'name': 'Source Type', 'id': 'source_type'},
-                                {'name': 'Event Type', 'id': 'event_type'},
-                                {'name': 'Mismatch Type', 'id': 'mismatch_type'}  # New column
+                                # {'name': 'Expected New Balance', 'id': 'expected_new_balance'},
+                                {'name': 'Payment Balance', 'id': 'paymentBalance'}, 
+                                {'name': 'Subscription Balance', 'id': 'subscriptionBalance'}
+                                # {'name': 'Source Type', 'id': 'source_type'},
+                                # {'name': 'Event Type', 'id': 'event_type'}
                             ],
-                            page_size=20,
+                            page_size=40,
                             data=reconcile_df.to_dict('records'),
+                            filter_action="native",
+                            sort_action="native",
                             style_table={
                                 'overflowX': 'auto',
                                 'width': '100%',

@@ -11,52 +11,110 @@ def populate_reconcile_events():
     # Reconciliation query with COALESCE and country mapping
     query = """
     SELECT 
-        time AS timestamp,
-        requestid,
-        transaction_id,
-        type,
-        userid AS user_id,
-        COALESCE(oldbalance, 0) AS old_balance,
-        CASE 
-            WHEN type = 'DEBIT' THEN -ABS(COALESCE(amount, 0)) 
-            ELSE ABS(COALESCE(amount, 0)) 
-        END AS amount,
-        COALESCE(newbalance, 0) AS new_balance,
-        COALESCE(paymentbalance, 0) AS payment_balance,
-        COALESCE(subscriptionbalance, 0) AS subscription_balance,
-        COALESCE(vat, 0) AS vat,
-        action AS event_type,
-        source AS source_type,
-        currency,
+        COALESCE(transformed_type, 'UNKNOWN') AS type,
         filename,
-        CASE currency
-            WHEN 'SAR' THEN 'Saudi Arabia'
-            WHEN 'BHD' THEN 'Bahrain'
-            WHEN 'AED' THEN 'United Arab Emirates'
-            WHEN 'KWD' THEN 'Kuwait'
-            WHEN 'OMR' THEN 'Oman'
-            ELSE 'Unknown'
-        END AS country,
+        RequestId,
+        transaction_id,
+        userId as user_id,
+        time as timestamp,
+        oldBalance as old_balance,
+        amount,
+        vat,
+        newBalance as new_balance,
         CASE 
-            WHEN ROUND(CAST(COALESCE(oldbalance, 0) AS FLOAT), 1) 
-                 + ROUND(CASE WHEN type = 'DEBIT' THEN -ABS(COALESCE(amount, 0)) ELSE ABS(COALESCE(amount, 0)) END, 1)
-                 - ROUND(CAST(COALESCE(vat, 0) AS FLOAT), 1) 
-                 != ROUND(CAST(COALESCE(newbalance, 0) AS FLOAT), 1)
-                 AND COALESCE(paymentbalance, 0) != COALESCE(subscriptionbalance, 0)
-            THEN 'CALCULATION + BALANCE SYNC'
-            
-            WHEN ROUND(CAST(COALESCE(oldbalance, 0) AS FLOAT), 1) 
-                 + ROUND(CASE WHEN type = 'DEBIT' THEN -ABS(COALESCE(amount, 0)) ELSE ABS(COALESCE(amount, 0)) END, 1)
-                 - ROUND(CAST(COALESCE(vat, 0) AS FLOAT), 1) 
-                 != ROUND(CAST(COALESCE(newbalance, 0) AS FLOAT), 1)
-            THEN 'CALCULATION'
-            
-            WHEN COALESCE(paymentbalance, 0) != COALESCE(subscriptionbalance, 0)
-            THEN 'BALANCE SYNC'
-        END AS mismatch_type
-    FROM parsed_logs
-    WHERE time IS NOT NULL
-      AND type IS NOT NULL;
+            WHEN newBalance < 0 THEN 1
+            ELSE 0
+        END AS is_overdraft,
+        ROUND(
+            oldbalance 
+            + (CASE WHEN transformed_type = 'DEBIT' THEN -ABS(amount) ELSE ABS(amount) END) 
+            - vat,
+            2
+        ) AS expected_new_balance,
+        CASE 
+            WHEN ROUND(
+                    oldbalance 
+                    + (CASE WHEN transformed_type = 'DEBIT' THEN -ABS(amount) ELSE ABS(amount) END) 
+                    - vat 
+                    - newbalance,
+                    0
+                ) != 0 
+            THEN 'CALCULATION ISSUE'
+            WHEN paymentBalance != subscriptionBalance 
+            THEN 'BALANCE SYNC ISSUE'
+            WHEN (paymentBalance != subscriptionBalance) 
+                AND ROUND(
+                        oldbalance 
+                        + (CASE WHEN transformed_type = 'DEBIT' THEN -ABS(amount) ELSE ABS(amount) END) 
+                        - vat 
+                        - newbalance,
+                        0
+                    ) != 0 
+            THEN 'CALCULATION + BALANCE SYNC ISSUE'
+            ELSE 'NO FOUND ISSUE'
+        END AS mismatch_type,
+        paymentBalance,
+        subscriptionBalance,
+        source,
+        action,
+        country
+
+    FROM (
+        SELECT 
+            type,
+            CASE 
+                WHEN type IS NULL 
+                    AND (oldBalance + amount - vat = newBalance) 
+                THEN 'CREDIT'
+                WHEN type IS NULL 
+                    AND (oldBalance - amount - vat = newBalance) 
+                THEN 'DEBIT'
+                ELSE type 
+            END AS transformed_type,
+            filename,
+            RequestId,
+            transaction_id,
+            userId,
+            time,
+            oldBalance,
+            amount,
+            vat,
+            newBalance,
+            paymentBalance,
+            subscriptionBalance,
+            source,
+            action,
+            country
+
+        FROM (
+            SELECT 
+                type,
+                COALESCE(ROUND(oldBalance, 2), 0) AS oldBalance,
+                COALESCE(ROUND(amount, 2), 0) AS amount,
+                COALESCE(ROUND(vat, 2), 0) AS vat,
+                COALESCE(ROUND(newBalance, 2), 0) AS newBalance,
+                COALESCE(ROUND(paymentBalance, 2), 0) AS paymentBalance,
+                COALESCE(ROUND(subscriptionBalance, 2), 0) AS subscriptionBalance,
+                filename,
+                RequestId,
+                transaction_id,
+                userId,
+                time,
+                source,
+                action,
+                CASE currency
+                    WHEN 'SAR' THEN 'Saudi Arabia'
+                    WHEN 'BHD' THEN 'Bahrain'
+                    WHEN 'AED' THEN 'United Arab Emirates'
+                    WHEN 'KWD' THEN 'Kuwait'
+                    WHEN 'OMR' THEN 'Oman'
+                    ELSE 'Unknown'
+                END AS country
+
+            FROM parsed_logs
+            WHERE time IS NOT NULL
+        ) base
+    ) type_base;
     """
 
     # Execute reconciliation query

@@ -8,16 +8,13 @@ def app_footer():
     return html.Footer(
         dbc.Container([
             dbc.Row([
-                # Left column - About or tagline
                 dbc.Col([
                     html.P("Calo Dashboard", className="fw-bold mb-1"),
-                    html.P("Streamline Calo Apps for users.", className="text-muted small")
+                    html.P("Tracks user balance mismatches, overdrafts, and reconciliation anomalies efficiently.", className="text-muted small")
                 ], md=6, sm=12),
 
                 dbc.Col([
                     html.Ul([
-                        #html.Li(html.A("Disclaimer", href="/disclaimer-terms-and-conditions", className="text-muted", style={"textDecoration": "none"})),
-                        #html.Li(html.A("Contact", href="/contact", className="text-muted", style={"textDecoration": "none"})),
                     ], className="list-unstyled mb-0")
                 ], md=6, sm=12, className="text-md-end mt-3 mt-md-0")
             ], className="py-3"),
@@ -26,7 +23,7 @@ def app_footer():
 
             dbc.Row([
                 dbc.Col(
-                    html.P("© 2025 Calo Dashboard", className="text-muted small mb-0 text-center"),
+                    html.P("© 2025 Calo Dashboard - Not for commerical purpose.", className="text-muted small mb-0 text-center"),
                     width=12
                 )
             ])
