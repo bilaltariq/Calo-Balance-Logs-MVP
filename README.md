@@ -1,5 +1,8 @@
 ### Balance Logs Data Pipeline – Project Plan
 
+### Visual after Docker is up:
+![alt text](image.png)
+
 ### 1. Objective
 
 Develop a pipeline to process subscription balance logs, enabling:
